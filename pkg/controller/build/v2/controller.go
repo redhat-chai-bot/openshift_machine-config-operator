@@ -140,10 +140,17 @@ func newOSBuildController(
 		shutdownChan: make(chan struct{}),
 	}
 
-	// Wire up sync handlers (can be overridden in tests).
-	ctrl.syncMOSC = ctrl.defaultSyncMOSC
-	ctrl.syncMOSB = ctrl.defaultSyncMOSB
-	ctrl.syncMCP = ctrl.defaultSyncMCP
+	// Create reconcilers and wire them as the default sync handlers.
+	statusMgr := NewMCPStatusManager(mcfgclient, ctrl.listers)
+	seeder := NewSeedManager(mcfgclient, kubeclient, ctrl.listers)
+
+	moscRec := newMOSCReconciler(mcfgclient, kubeclient, ctrl.listers, statusMgr, seeder, ctrl.eventRecorder)
+	mosbRec := newMOSBReconciler(mcfgclient, kubeclient, ctrl.listers, statusMgr, ctrl.eventRecorder)
+	mcpRec := newMCPReconciler(mcfgclient, kubeclient, ctrl.listers, statusMgr, ctrl.eventRecorder, ctrl.moscQueue)
+
+	ctrl.syncMOSC = moscRec.Sync
+	ctrl.syncMOSB = mosbRec.Sync
+	ctrl.syncMCP = mcpRec.Sync
 
 	// Register event handlers.
 	inf.machineOSConfigInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
