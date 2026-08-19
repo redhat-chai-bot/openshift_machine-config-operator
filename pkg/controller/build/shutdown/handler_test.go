@@ -542,6 +542,10 @@ func newTestShutdownDelayHandler(ctx context.Context, cancel context.CancelFunc,
 				// we can cancel the context afterward and exit.
 				if fc.HasWaiters() {
 					fc.Step(time.Second)
+					// Brief yield so the handler goroutine can process the
+					// After channel before the context is cancelled, avoiding
+					// a non-deterministic select between After and ctx.Done.
+					time.Sleep(time.Millisecond)
 					cancel()
 					return
 				}
