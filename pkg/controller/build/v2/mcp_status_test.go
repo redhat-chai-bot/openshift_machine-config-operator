@@ -36,11 +36,6 @@ func newTestMCPWithCondition(name string, condType mcfgv1.MachineConfigPoolCondi
 func newTestMCPStatusManager(t *testing.T, objects ...*mcfgv1.MachineConfigPool) (*MCPStatusManager, *fakeclientmachineconfigv1.Clientset) {
 	t.Helper()
 
-	runtimeObjs := []metav1.Object{}
-	for _, mcp := range objects {
-		runtimeObjs = append(runtimeObjs, mcp)
-	}
-
 	mcfgclient := fakeclientmachineconfigv1.NewSimpleClientset()
 	for _, mcp := range objects {
 		_, err := mcfgclient.MachineconfigurationV1().MachineConfigPools().Create(context.Background(), mcp, metav1.CreateOptions{})

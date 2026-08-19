@@ -152,13 +152,6 @@ func testMOSBWithBuilding(name, moscName, mcName string) *mcfgv1.MachineOSBuild 
 	return mosb
 }
 
-func testMOSBWithPrepared(name, moscName, mcName string) *mcfgv1.MachineOSBuild {
-	mosb := testMOSB(name, moscName, mcName)
-	mosb.Status = mcfgv1.MachineOSBuildStatus{
-		Conditions: apihelpers.MachineOSBuildPendingConditions(),
-	}
-	return mosb
-}
 
 func testMOSCForReconciler(name, poolName string) *mcfgv1.MachineOSConfig {
 	return &mcfgv1.MachineOSConfig{

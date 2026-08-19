@@ -20,8 +20,8 @@ import (
 // mcpReconciler detects rendered config changes on MachineConfigPools and
 // delegates build creation to the MOSC reconciler via queue enqueue.
 type mcpReconciler struct {
-	mcfgclient    mcfgclientset.Interface
-	kubeclient    clientset.Interface
+	mcfgclient mcfgclientset.Interface
+	kubeclient clientset.Interface
 	*listers
 	statusMgr     *MCPStatusManager
 	eventRecorder *events.OCLEventRecorder
@@ -49,7 +49,7 @@ func newMCPReconciler(
 
 // Sync is the entry point for MachineConfigPool reconciliation. It detects
 // rendered config changes and delegates build creation to the MOSC queue.
-func (r *mcpReconciler) Sync(ctx context.Context, mcpName string) error {
+func (r *mcpReconciler) Sync(ctx context.Context, mcpName string) error { //nolint:revive // ctx required by sync handler signature
 	mcp, err := r.machineConfigPoolLister.Get(mcpName)
 	if k8serrors.IsNotFound(err) {
 		klog.V(4).Infof("MachineConfigPool %q not found, skipping", mcpName)
@@ -157,13 +157,13 @@ func (r *mcpReconciler) updateMetrics(mcp *mcfgv1.MachineConfigPool) {
 func (r *mcpReconciler) SetMCPBuildability(ctx context.Context, mcp *mcfgv1.MachineConfigPool) error {
 	moscCount := r.getMOSCCountForPool(mcp.Name)
 
-	switch {
-	case moscCount == 1:
+	switch moscCount {
+	case 1:
 		return r.statusMgr.MarkMCPBuildable(ctx, mcp,
 			"MOSCReady",
 			fmt.Sprintf("MachineConfigPool %q has exactly 1 MachineOSConfig, ready for builds", mcp.Name),
 		)
-	case moscCount == 0:
+	case 0:
 		return r.statusMgr.MarkMCPNotBuildable(ctx, mcp,
 			"NoMOSC",
 			fmt.Sprintf("MachineConfigPool %q has no MachineOSConfig, cannot build", mcp.Name),
@@ -192,31 +192,6 @@ func (r *mcpReconciler) getMOSCCountForPool(poolName string) int {
 		}
 	}
 	return count
-}
-
-// getMOSCForPool returns the MachineOSConfig targeting the given pool, if any.
-// This is equivalent to the label-based lookup in utils but uses spec matching.
-func getMOSCForPool(moscList []*mcfgv1.MachineOSConfig, poolName string) *mcfgv1.MachineOSConfig {
-	for _, mosc := range moscList {
-		if mosc.Spec.MachineConfigPool.Name == poolName {
-			return mosc
-		}
-	}
-	return nil
-}
-
-// enqueueMOSCForPool finds and enqueues the MOSC for the given pool name.
-func (r *mcpReconciler) enqueueMOSCForPool(poolName string) {
-	moscList, err := r.machineOSConfigLister.List(labels.Everything())
-	if err != nil {
-		klog.Warningf("Could not list MachineOSConfigs to find one for pool %q: %v", poolName, err)
-		return
-	}
-
-	mosc := getMOSCForPool(moscList, poolName)
-	if mosc != nil {
-		r.moscQueue.Add(mosc.Name)
-	}
 }
 
 // MarkMCPBuildable is a convenience that sets ImageBuildDegraded=False.

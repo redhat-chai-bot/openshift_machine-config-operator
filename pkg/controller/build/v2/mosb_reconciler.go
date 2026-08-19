@@ -23,8 +23,8 @@ import (
 
 // mosbReconciler implements the level-triggered MOSB state machine.
 type mosbReconciler struct {
-	mcfgclient    mcfgclientset.Interface
-	kubeclient    clientset.Interface
+	mcfgclient mcfgclientset.Interface
+	kubeclient clientset.Interface
 	*listers
 	statusMgr     *MCPStatusManager
 	eventRecorder *events.OCLEventRecorder

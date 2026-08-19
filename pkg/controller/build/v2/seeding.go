@@ -170,10 +170,10 @@ func (s *SeedManager) SeedMOSB(ctx context.Context, mosc *mcfgv1.MachineOSConfig
 			},
 		},
 		Status: mcfgv1.MachineOSBuildStatus{
-			BuildStart:           &now,
-			BuildEnd:             &buildEnd,
+			BuildStart:            &now,
+			BuildEnd:              &buildEnd,
 			DigestedImagePushSpec: mcfgv1.ImageDigestFormat(imageSpec),
-			Conditions:           syntheticSuccessConditions(now, imageSpec),
+			Conditions:            syntheticSuccessConditions(now, imageSpec),
 		},
 	}
 
@@ -265,6 +265,8 @@ func (s *SeedManager) ensureSecretExists(ctx context.Context, secretName string)
 	return fmt.Errorf("failed to check if secret %s exists: %w", secretName, err)
 }
 
+const preBuiltImageSkipMessage = "Skipped: using pre-built image"
+
 // syntheticSuccessConditions returns the conditions for a synthetic
 // MachineOSBuild that represents a pre-built image.
 func syntheticSuccessConditions(now metav1.Time, imageSpec string) []metav1.Condition {
@@ -281,28 +283,28 @@ func syntheticSuccessConditions(now metav1.Time, imageSpec string) []metav1.Cond
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: now,
 			Reason:             constants.ReasonPreBuiltImageSeeded,
-			Message:            "Skipped: using pre-built image",
+			Message:            preBuiltImageSkipMessage,
 		},
 		{
 			Type:               string(mcfgv1.MachineOSBuilding),
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: now,
 			Reason:             constants.ReasonPreBuiltImageSeeded,
-			Message:            "Skipped: using pre-built image",
+			Message:            preBuiltImageSkipMessage,
 		},
 		{
 			Type:               string(mcfgv1.MachineOSBuildFailed),
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: now,
 			Reason:             constants.ReasonPreBuiltImageSeeded,
-			Message:            "Skipped: using pre-built image",
+			Message:            preBuiltImageSkipMessage,
 		},
 		{
 			Type:               string(mcfgv1.MachineOSBuildInterrupted),
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: now,
 			Reason:             constants.ReasonPreBuiltImageSeeded,
-			Message:            "Skipped: using pre-built image",
+			Message:            preBuiltImageSkipMessage,
 		},
 	}
 }

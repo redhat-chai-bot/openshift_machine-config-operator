@@ -1,3 +1,4 @@
+// Package v2 implements the level-triggered V2 build controller.
 package v2
 
 import (
@@ -178,11 +179,11 @@ func newOSBuildController(
 
 	// Set up shutdown handler.
 	ctrl.shutdownHandler = shutdown.NewShutdownDelayHandler(shutdown.Listers{
-		MachineOSConfigLister: ctrl.listers.machineOSConfigLister,
-		MachineOSBuildLister:  ctrl.listers.machineOSBuildLister,
-		JobLister:             ctrl.listers.jobLister,
-		ConfigMapLister:       ctrl.listers.configmapLister,
-		SecretLister:          ctrl.listers.secretLister,
+		MachineOSConfigLister: ctrl.machineOSConfigLister,
+		MachineOSBuildLister:  ctrl.machineOSBuildLister,
+		JobLister:             ctrl.jobLister,
+		ConfigMapLister:       ctrl.configmapLister,
+		SecretLister:          ctrl.secretLister,
 	}, clock.RealClock{})
 
 	return ctrl
@@ -198,10 +199,10 @@ func (ctrl *OSBuildController) Run(ctx context.Context, workers int) {
 	defer utilruntime.HandleCrash()
 	defer ctrl.shutdownController()
 
-	ctrl.informers.start(ctx)
+	ctrl.start(ctx)
 
 	klog.Info("Waiting for informer caches to sync for OSBuildController-v2")
-	if !cache.WaitForCacheSync(ctx.Done(), ctrl.informers.hasSynced...) {
+	if !cache.WaitForCacheSync(ctx.Done(), ctrl.hasSynced...) {
 		klog.Error("Failed to sync informer caches for OSBuildController-v2")
 		return
 	}
@@ -405,18 +406,3 @@ func (ctrl *OSBuildController) handleErr(
 }
 
 // --- Default sync stubs (will be replaced by real reconcilers in later phases) ---
-
-func (ctrl *OSBuildController) defaultSyncMOSC(_ context.Context, key string) error {
-	klog.V(4).Infof("Syncing MachineOSConfig %q (stub)", key)
-	return nil
-}
-
-func (ctrl *OSBuildController) defaultSyncMOSB(_ context.Context, key string) error {
-	klog.V(4).Infof("Syncing MachineOSBuild %q (stub)", key)
-	return nil
-}
-
-func (ctrl *OSBuildController) defaultSyncMCP(_ context.Context, key string) error {
-	klog.V(4).Infof("Syncing MachineConfigPool %q (stub)", key)
-	return nil
-}

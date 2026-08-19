@@ -22,8 +22,8 @@ import (
 
 // moscReconciler implements the level-triggered MachineOSConfig reconciler.
 type moscReconciler struct {
-	mcfgclient    mcfgclientset.Interface
-	kubeclient    clientset.Interface
+	mcfgclient mcfgclientset.Interface
+	kubeclient clientset.Interface
 	*listers
 	statusMgr     *MCPStatusManager
 	seeder        *SeedManager
@@ -223,7 +223,7 @@ func (r *moscReconciler) createNewMOSB(ctx context.Context, mosc *mcfgv1.Machine
 }
 
 // handleExistingMOSB handles an existing MOSB based on its current state.
-func (r *moscReconciler) handleExistingMOSB(ctx context.Context, mosc *mcfgv1.MachineOSConfig, mcp *mcfgv1.MachineConfigPool, mosb *mcfgv1.MachineOSBuild) error {
+func (r *moscReconciler) handleExistingMOSB(ctx context.Context, mosc *mcfgv1.MachineOSConfig, _ *mcfgv1.MachineConfigPool, mosb *mcfgv1.MachineOSBuild) error {
 	// Succeeded: ensure MOSC status is up to date.
 	if apihelpers.IsMachineOSBuildConditionTrue(mosb.Status.Conditions, mcfgv1.MachineOSBuildSucceeded) {
 		if err := r.ensureMOSCStatusFromMOSB(ctx, mosc, mosb); err != nil {

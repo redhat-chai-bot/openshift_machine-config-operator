@@ -435,11 +435,6 @@ func TestPreBuiltImageHelpers(t *testing.T) {
 
 // --- Helpers for test data construction ---
 
-func makeMOSBWithConditions(conditions []metav1.Condition) *mcfgv1.MachineOSBuild {
-	return &mcfgv1.MachineOSBuild{
-		Status: mcfgv1.MachineOSBuildStatus{Conditions: conditions},
-	}
-}
 
 func TestAllTransitionCombinations(t *testing.T) {
 	t.Parallel()
