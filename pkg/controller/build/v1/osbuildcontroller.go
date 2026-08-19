@@ -1,4 +1,4 @@
-package build
+package v1
 
 import (
 	"context"
@@ -16,7 +16,9 @@ import (
 	"github.com/openshift/client-go/machineconfiguration/clientset/versioned/scheme"
 	routeclientset "github.com/openshift/client-go/route/clientset/versioned"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/shutdown"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	"k8s.io/utils/clock"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -47,7 +49,7 @@ type OSBuildController struct {
 	// Handles determining whether a delay is needed for controller shut down and
 	// polls until pending objects, if any, are deleted or until the context it
 	// is invoked with is canceled.
-	shutdownDelayHandler *shutdownDelayHandler
+	shutdownDelayHandler *shutdown.ShutdownDelayHandler
 
 	// This channel is primarily used for testing purposes to ensure that
 	shutdownChan chan struct{}
@@ -150,7 +152,13 @@ func newOSBuildController(
 	})
 
 	ctrl.buildReconciler = newBuildReconciler(mcfgclient, kubeclient, imageclient, routeclient, ctrl.listers, imagepruner, ctrl.eventRecorder)
-	ctrl.shutdownDelayHandler = newShutdownDelayHandler(ctrl.listers)
+	ctrl.shutdownDelayHandler = shutdown.NewShutdownDelayHandler(shutdown.Listers{
+		MachineOSConfigLister:  ctrl.listers.machineOSConfigLister,
+		MachineOSBuildLister:   ctrl.listers.machineOSBuildLister,
+		JobLister:              ctrl.listers.jobLister,
+		ConfigMapLister:        ctrl.listers.configmapLister,
+		SecretLister:           ctrl.listers.secretLister,
+	}, clock.RealClock{})
 	ctrl.shutdownChan = make(chan struct{})
 
 	return ctrl
@@ -165,7 +173,7 @@ func (ctrl *OSBuildController) shutdownController() {
 
 	klog.Infof("Determining if a shutdown delay up to %s is required", ctrl.config.MaxShutdownDelay)
 
-	if err := ctrl.shutdownDelayHandler.handleShutdown(shutdownCtx, ctrl.config.ShutdownPollInterval); err != nil {
+	if err := ctrl.shutdownDelayHandler.HandleShutdown(shutdownCtx, ctrl.config.ShutdownPollInterval); err != nil {
 		klog.Warningf("Error occurred during graceful shutdown: %s. Some objects may be orphaned as a result.", err)
 	}
 

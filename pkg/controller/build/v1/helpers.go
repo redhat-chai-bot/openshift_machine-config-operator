@@ -1,126 +1,17 @@
-package build
+package v1
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/containers/image/v5/docker/reference"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	"github.com/openshift/client-go/machineconfiguration/clientset/versioned"
-	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
-	"github.com/openshift/machine-config-operator/pkg/secrets"
-	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientset "k8s.io/client-go/kubernetes"
-	corelisterv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
-
-// ValidateOnClusterBuildConfig validates the existence of the MachineOSConfig and the required build inputs.
-func ValidateOnClusterBuildConfig(kubeclient clientset.Interface, mcfgclient versioned.Interface, layeredMCPs []*mcfgv1.MachineConfigPool) error {
-	// Validate the presence of the MachineOSConfig
-	machineOSConfigs, err := mcfgclient.MachineconfigurationV1().MachineOSConfigs().List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		return err
-	}
-
-	secretGetter := func(name string) (*corev1.Secret, error) {
-		return kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Get(context.TODO(), name, metav1.GetOptions{})
-	}
-
-	moscForPoolExists := false
-	var moscForPool *mcfgv1.MachineOSConfig
-	for _, pool := range layeredMCPs {
-		moscForPoolExists = false
-		for _, mosc := range machineOSConfigs.Items {
-			if mosc.Spec.MachineConfigPool.Name == pool.Name {
-				moscForPoolExists = true
-				moscForPool = &mosc
-				break
-			}
-		}
-
-		if !moscForPoolExists {
-			return fmt.Errorf("MachineOSConfig for pool %s missing, did you create it?", pool.Name)
-		}
-
-		mcpGetter := func(_ string) (*mcfgv1.MachineConfigPool, error) {
-			return pool, nil
-		}
-
-		if err := validateMachineOSConfig(mcpGetter, secretGetter, moscForPool); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func validateMachineOSConfig(mcpGetter func(string) (*mcfgv1.MachineConfigPool, error), secretGetter func(string) (*corev1.Secret, error), mosc *mcfgv1.MachineOSConfig) error {
-	_, err := mcpGetter(mosc.Spec.MachineConfigPool.Name)
-	if err != nil && k8serrors.IsNotFound(err) {
-		return fmt.Errorf("no MachineConfigPool named %s exists for MachineOSConfig %s", mosc.Spec.MachineConfigPool.Name, mosc.Name)
-	}
-
-	if err != nil {
-		return fmt.Errorf("could not get MachineConfigPool %s: %w", mosc.Spec.MachineConfigPool.Name, err)
-	}
-
-	secretFields := map[string]string{
-		mosc.Spec.RenderedImagePushSecret.Name: "renderedImagePushSecret",
-	}
-	// Add base image pull secret if it has been defined in the MOSC
-	if mosc.Spec.BaseImagePullSecret != nil {
-		secretFields[mosc.Spec.BaseImagePullSecret.Name] = "baseImagePullSecret"
-	}
-
-	for secretName, fieldName := range secretFields {
-		if err := validateSecret(secretGetter, mosc, secretName); err != nil {
-			return fmt.Errorf("could not validate %s %q for MachineOSConfig %s: %w", fieldName, secretName, mosc.Name, err)
-		}
-	}
-
-	if _, err := reference.ParseNamed(string(mosc.Spec.RenderedImagePushSpec)); err != nil {
-		return fmt.Errorf("could not validate renderdImagePushspec %s for MachineOSConfig %s: %w", string(mosc.Spec.RenderedImagePushSpec), mosc.Name, err)
-	}
-
-	return nil
-}
-
-func ValidateMachineOSConfigFromListers(mcpLister mcfglistersv1.MachineConfigPoolLister, secretLister corelisterv1.SecretLister, mosc *mcfgv1.MachineOSConfig) error {
-	mcpGetter := func(name string) (*mcfgv1.MachineConfigPool, error) {
-		return mcpLister.Get(name)
-	}
-
-	secretGetter := func(name string) (*corev1.Secret, error) {
-		return secretLister.Secrets(ctrlcommon.MCONamespace).Get(name)
-	}
-
-	return validateMachineOSConfig(mcpGetter, secretGetter, mosc)
-}
-
-func validateSecret(secretGetter func(string) (*corev1.Secret, error), mosc *mcfgv1.MachineOSConfig, secretName string) error {
-	if secretName == "" {
-		return fmt.Errorf("no secret name provided")
-	}
-
-	secret, err := secretGetter(secretName)
-
-	if err != nil && k8serrors.IsNotFound(err) {
-		return fmt.Errorf("secret %s from %s is not found. Did you use the right secret name?", secretName, mosc.Name)
-	}
-
-	if err != nil {
-		return fmt.Errorf("could not get secret %s for MachineOSConfig %s: %w", secretName, mosc.Name, err)
-	}
-
-	return secrets.ValidateKubernetesImageRegistrySecret(secret)
-}
 
 // Determines if a MachineOSBuild status update is needed. These are needed
 // primarily when we transition from the initial status -> transient state ->

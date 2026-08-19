@@ -1,4 +1,4 @@
-package build
+package shutdown
 
 import (
 	"context"
@@ -19,34 +19,45 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	batchlisterv1 "k8s.io/client-go/listers/batch/v1"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 )
 
-// Handles graceful shutdowns of the OS Build Controller.
-type shutdownDelayHandler struct {
-	// Holds the listers struct containing all of the listers we've previously
-	// instantiated.
-	*listers
+// Listers holds the listers required by the shutdown delay handler.
+type Listers struct {
+	MachineOSConfigLister  mcfglistersv1.MachineOSConfigLister
+	MachineOSBuildLister   mcfglistersv1.MachineOSBuildLister
+	JobLister              batchlisterv1.JobLister
+	ConfigMapLister        corelistersv1.ConfigMapLister
+	SecretLister           corelistersv1.SecretLister
+}
+
+// ShutdownDelayHandler handles graceful shutdowns of the OS Build Controller.
+type ShutdownDelayHandler struct {
+	listers Listers
 	// A Clock object which is mockable for testing purposes.
 	clock clock.Clock
 }
 
-// Instantiates the shutdown delay handler.
-func newShutdownDelayHandler(l *listers) *shutdownDelayHandler {
-	return &shutdownDelayHandler{
-		listers: l,
-		clock:   clock.RealClock{},
+// NewShutdownDelayHandler instantiates the shutdown delay handler.
+func NewShutdownDelayHandler(listers Listers, clk clock.Clock) *ShutdownDelayHandler {
+	return &ShutdownDelayHandler{
+		listers: listers,
+		clock:   clk,
 	}
 }
 
-// The entrypoint into the shutdown delay state loop. This loop will check for
-// child objects at the poll interval that was passed. It will return under the
-// following conditions:.
-// 1. No child objects were foud.
+// HandleShutdown is the entrypoint into the shutdown delay state loop. This
+// loop will check for child objects at the poll interval that was passed. It
+// will return under the following conditions:
+// 1. No child objects were found.
 // 2. The provided context was cancelled.
 // 3. An error is encountered.
-func (s *shutdownDelayHandler) handleShutdown(ctx context.Context, pollInterval time.Duration) error {
+func (s *ShutdownDelayHandler) HandleShutdown(ctx context.Context, pollInterval time.Duration) error {
 	klog.Infof("Polling every %s to check for child objects", pollInterval)
 	start := time.Now()
 	for {
@@ -73,7 +84,7 @@ func (s *shutdownDelayHandler) handleShutdown(ctx context.Context, pollInterval 
 }
 
 // Prints cleanup messages to the console log that aid in the cleanup process.
-func (s *shutdownDelayHandler) printCleanupMessages() error {
+func (s *ShutdownDelayHandler) printCleanupMessages() error {
 	orphaned, err := s.findAllNonPendingObjects()
 	if err != nil {
 		return err
@@ -91,7 +102,7 @@ func (s *shutdownDelayHandler) printCleanupMessages() error {
 
 // Finds all of the objects related to a MachineOSConfig or a MachineOSBuild
 // that are not pending deletion. Also searches for orphaned objects.
-func (s *shutdownDelayHandler) findAllNonPendingObjects() (*utils.UniqueObjects, error) {
+func (s *ShutdownDelayHandler) findAllNonPendingObjects() (*utils.UniqueObjects, error) {
 	objs, err := newObjectsForShutdownFromListers(s.listers)
 	if err != nil {
 		return nil, err
@@ -103,7 +114,7 @@ func (s *shutdownDelayHandler) findAllNonPendingObjects() (*utils.UniqueObjects,
 // Determines if we need to delay the shutdown process. This is determined by
 // the number of objects that are not pending deletion. If that number is zero,
 // then there is no need to delay the shutdown process.
-func (s *shutdownDelayHandler) isDelayNeeded() (bool, error) {
+func (s *ShutdownDelayHandler) isDelayNeeded() (bool, error) {
 	objs, err := s.findAllNonPendingObjects()
 	if err != nil {
 		return false, err
@@ -132,13 +143,13 @@ type objectsForShutdown struct {
 }
 
 // Fetches all of the objects from the listers.
-func newObjectsForShutdownFromListers(l *listers) (*objectsForShutdown, error) {
-	moscList, err := l.machineOSConfigLister.List(labels.Everything())
+func newObjectsForShutdownFromListers(l Listers) (*objectsForShutdown, error) {
+	moscList, err := l.MachineOSConfigLister.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
 
-	mosbList, err := l.machineOSBuildLister.List(labels.Everything())
+	mosbList, err := l.MachineOSBuildLister.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
@@ -146,17 +157,17 @@ func newObjectsForShutdownFromListers(l *listers) (*objectsForShutdown, error) {
 	// Select for all ephemeral build objects.
 	sel := utils.EphemeralBuildObjectSelector()
 
-	jobList, err := l.jobLister.List(sel)
+	jobList, err := l.JobLister.List(sel)
 	if err != nil {
 		return nil, err
 	}
 
-	cmList, err := l.configmapLister.List(sel)
+	cmList, err := l.ConfigMapLister.List(sel)
 	if err != nil {
 		return nil, err
 	}
 
-	secretList, err := l.secretLister.List(sel)
+	secretList, err := l.SecretLister.List(sel)
 	if err != nil {
 		return nil, err
 	}

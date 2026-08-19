@@ -1,4 +1,4 @@
-package build
+package v1
 
 import (
 	"context"
@@ -29,6 +29,9 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 
 	fakecorev1client "k8s.io/client-go/kubernetes/fake"
+	fakeclock "k8s.io/utils/clock/testing"
+
+	"github.com/openshift/machine-config-operator/pkg/controller/build/shutdown"
 )
 
 // Provides a fake imagepruner implementation. Currently, we are not validating
@@ -656,9 +659,30 @@ func startController(ctx context.Context, t *testing.T, kubeclient *fakecorev1cl
 		<-ctrl.shutdownChan
 	}
 
-	// Instantiate a shutdownhandler for testing purposes. See function for
-	// details.
-	ctrl.shutdownDelayHandler = newTestShutdownDelayHandler(ctrlCtx, cancelFunc, t, ctrl.listers)
+	// Instantiate a shutdownhandler for testing purposes with a fake clock.
+	fc := fakeclock.NewFakeClock(time.Now())
+	ctrl.shutdownDelayHandler = shutdown.NewShutdownDelayHandler(shutdown.Listers{
+		MachineOSConfigLister:  ctrl.listers.machineOSConfigLister,
+		MachineOSBuildLister:   ctrl.listers.machineOSBuildLister,
+		JobLister:              ctrl.listers.jobLister,
+		ConfigMapLister:        ctrl.listers.configmapLister,
+		SecretLister:           ctrl.listers.secretLister,
+	}, fc)
+	// Drive the fake clock in a goroutine so the shutdown handler progresses.
+	go func() {
+		for {
+			select {
+			case <-ctrlCtx.Done():
+				return
+			default:
+				if fc.HasWaiters() {
+					fc.Step(time.Second)
+					cancelFunc()
+					return
+				}
+			}
+		}
+	}()
 
 	t.Cleanup(cancelFunc)
 

@@ -1,4 +1,4 @@
-package build
+package metrics
 
 import (
 	"fmt"
@@ -305,4 +305,9 @@ func RecordBuildQueueDuration(pool string, queuedAt time.Time) {
 func UpdateOCLRolloutCounts(pool string, updatedNodes, totalNodes int32) {
 	oclRolloutUpdatedNodes.WithLabelValues(pool).Set(float64(updatedNodes))
 	oclRolloutTotalNodes.WithLabelValues(pool).Set(float64(totalNodes))
+}
+
+// SetMOSCCount sets the number of MachineOSConfig objects in the cluster.
+func SetMOSCCount(count int) {
+	oclMOSCCount.Set(float64(count))
 }

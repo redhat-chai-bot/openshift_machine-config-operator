@@ -1,4 +1,4 @@
-package build
+package v1
 
 import (
 	"context"
@@ -15,8 +15,10 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/apihelpers"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/events"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagebuilder"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/metrics"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	daemonconstants "github.com/openshift/machine-config-operator/pkg/daemon/constants"
@@ -68,7 +70,7 @@ type buildReconciler struct {
 	imageclient   imagev1clientset.Interface
 	routeclient   routeclientset.Interface
 	imagepruner   imagepruner.ImagePruner
-	eventRecorder *OCLEventRecorder
+	eventRecorder *events.OCLEventRecorder
 	*listers
 }
 
@@ -85,7 +87,7 @@ func newBuildReconcilerAsStruct(mcfgclient mcfgclientset.Interface, kubeclient c
 		imageclient:   imageclient,
 		routeclient:   routeclient,
 		imagepruner:   imagepruner,
-		eventRecorder: NewOCLEventRecorder(eventRecorder),
+		eventRecorder: events.NewOCLEventRecorder(eventRecorder),
 		listers:       l,
 	}
 }
@@ -236,9 +238,9 @@ func (b *buildReconciler) AddJob(ctx context.Context, job *batchv1.Job) error {
 			mosc, err := utils.GetMachineOSConfigForMachineOSBuild(mosb, b.utilListers())
 			if err == nil {
 				poolName := mosc.Spec.MachineConfigPool.Name
-				RecordBuildJobState(poolName, "active")
-				RecordImagePushStarted(poolName)
-				RecordBuildQueueDuration(poolName, mosb.CreationTimestamp.Time)
+				metrics.RecordBuildJobState(poolName, "active")
+				metrics.RecordImagePushStarted(poolName)
+				metrics.RecordBuildQueueDuration(poolName, mosb.CreationTimestamp.Time)
 			}
 		}
 
@@ -273,17 +275,17 @@ func (b *buildReconciler) UpdateJob(ctx context.Context, oldJob, curJob *batchv1
 				poolName := mosc.Spec.MachineConfigPool.Name
 
 				if curJob.Status.Succeeded > 0 && (oldJob.Status.Succeeded == 0) {
-					RecordBuildJobState(poolName, StateSucceeded)
-					RecordImagePushCompleted(poolName)
+					metrics.RecordBuildJobState(poolName, metrics.StateSucceeded)
+					metrics.RecordImagePushCompleted(poolName)
 				}
 
 				if curJob.Status.Failed > 0 && (oldJob.Status.Failed == 0) {
-					RecordBuildJobState(poolName, StateFailed)
-					RecordImagePushFailed(poolName)
+					metrics.RecordBuildJobState(poolName, metrics.StateFailed)
+					metrics.RecordImagePushFailed(poolName)
 				}
 
 				if curJob.Status.Failed > oldJob.Status.Failed && curJob.Status.Failed <= constants.JobMaxRetries {
-					RecordBuildRetry(poolName)
+					metrics.RecordBuildRetry(poolName)
 				}
 			}
 		}
@@ -359,9 +361,9 @@ func (b *buildReconciler) updateMachineOSBuild(ctx context.Context, old, current
 		klog.Infof("MachineOSBuild %s failed, leaving ephemeral objects in place for inspection", current.Name)
 
 		if old.CreationTimestamp.Time.IsZero() {
-			RecordBuildFailed(poolName, time.Now())
+			metrics.RecordBuildFailed(poolName, time.Now())
 		} else {
-			RecordBuildFailed(poolName, old.CreationTimestamp.Time)
+			metrics.RecordBuildFailed(poolName, old.CreationTimestamp.Time)
 		}
 
 		mcp, err := b.machineConfigPoolLister.Get(mosc.Spec.MachineConfigPool.Name)
@@ -389,9 +391,9 @@ func (b *buildReconciler) updateMachineOSBuild(ctx context.Context, old, current
 		b.eventRecorder.RecordBuildCompleted(current, string(current.Status.DigestedImagePushSpec))
 
 		if old.CreationTimestamp.Time.IsZero() {
-			RecordBuildCompleted(poolName, time.Now())
+			metrics.RecordBuildCompleted(poolName, time.Now())
 		} else {
-			RecordBuildCompleted(poolName, old.CreationTimestamp.Time)
+			metrics.RecordBuildCompleted(poolName, old.CreationTimestamp.Time)
 		}
 
 		mcp, err := b.machineConfigPoolLister.Get(mosc.Spec.MachineConfigPool.Name)
@@ -425,11 +427,11 @@ func (b *buildReconciler) updateMachineOSBuild(ctx context.Context, old, current
 	}
 
 	if !oldState.IsBuilding() && curState.IsBuilding() {
-		RecordBuildBuilding(poolName)
+		metrics.RecordBuildBuilding(poolName)
 	}
 
 	if !oldState.IsBuildInterrupted() && curState.IsBuildInterrupted() {
-		RecordBuildInterrupted(poolName)
+		metrics.RecordBuildInterrupted(poolName)
 	}
 
 	return nil
@@ -538,14 +540,14 @@ func (b *buildReconciler) updateMachineConfigPool(ctx context.Context, oldMCP, c
 	if oldMCP.Spec.Configuration.Name != curMCP.Spec.Configuration.Name {
 		klog.Infof("Rendered config for pool %s changed from %s to %s", curMCP.Name, oldMCP.Spec.Configuration.Name, curMCP.Spec.Configuration.Name)
 		b.eventRecorder.RecordPoolConfigChanged(curMCP, oldMCP.Spec.Configuration.Name, curMCP.Spec.Configuration.Name)
-		RecordConfigChange(curMCP.Name)
+		metrics.RecordConfigChange(curMCP.Name)
 		if err := b.reconcilePoolChange(ctx, curMCP); err != nil {
 			return fmt.Errorf("could not create or reuse existing MachineOSBuild for MachineConfigPool %q change: %w", curMCP.Name, err)
 		}
 	}
 
 	if _, err := utils.GetMachineOSConfigForMachineConfigPool(curMCP, b.utilListers()); err == nil {
-		UpdateOCLRolloutCounts(curMCP.Name, curMCP.Status.UpdatedMachineCount, curMCP.Status.MachineCount)
+		metrics.UpdateOCLRolloutCounts(curMCP.Name, curMCP.Status.UpdatedMachineCount, curMCP.Status.MachineCount)
 	}
 
 	return b.syncAll(ctx)
@@ -572,7 +574,7 @@ func (b *buildReconciler) startBuild(ctx context.Context, mosb *mcfgv1.MachineOS
 
 	b.eventRecorder.RecordBuildStarted(mosb, mosc)
 	b.eventRecorder.RecordBuildPreparing(mosb, fmt.Sprintf("creating build job for pool %q", mosc.Spec.MachineConfigPool.Name))
-	RecordBuildStarted(poolName)
+	metrics.RecordBuildStarted(poolName)
 
 	// Next, create our new MachineOSBuild.
 	if err := imagebuilder.NewJobImageBuilder(b.kubeclient, b.mcfgclient, mosb, mosc).Start(ctx); err != nil {
@@ -590,7 +592,7 @@ func (b *buildReconciler) startBuild(ctx context.Context, mosb *mcfgv1.MachineOS
 		return fmt.Errorf("imagebuilder could not start build for MachineOSBuild %q: %w", mosb.Name, err)
 	}
 
-	RecordBuildStarted(poolName)
+	metrics.RecordBuildStarted(poolName)
 
 	klog.Infof("Started new build %s for MachineOSBuild", utils.GetBuildJobName(mosb))
 
@@ -1382,7 +1384,7 @@ func (b *buildReconciler) syncMachineOSConfigs(ctx context.Context) error {
 			return err
 		}
 
-		oclMOSCCount.Set(float64(len(moscs)))
+		metrics.SetMOSCCount(len(moscs))
 
 		for _, mosc := range moscs {
 			if err := b.syncMachineOSConfig(ctx, mosc); err != nil {

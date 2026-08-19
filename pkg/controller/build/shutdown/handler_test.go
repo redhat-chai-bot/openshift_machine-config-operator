@@ -1,4 +1,4 @@
-package build
+package shutdown
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"time"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	fakeclientmachineconfigv1 "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
@@ -19,7 +19,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	apitypes "k8s.io/apimachinery/pkg/types"
-	fakecorev1client "k8s.io/client-go/kubernetes/fake"
+	batchlisterv1 "k8s.io/client-go/listers/batch/v1"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/cache"
 	fakeclock "k8s.io/utils/clock/testing"
 )
@@ -428,7 +429,7 @@ func TestShutdown(t *testing.T) {
 
 				sh := setupShutdownDelayHandlerForTest(ctx, cancel, t, testCase.shutdownTestObjects)
 
-				err := sh.handleShutdown(ctx, time.Nanosecond)
+				err := sh.HandleShutdown(ctx, time.Nanosecond)
 				if testCase.expected != nil {
 					assert.Error(t, err)
 				} else {
@@ -464,34 +465,45 @@ func newObjectsForShutdownFromRuntimeObjects(objs []runtime.Object) *objectsForS
 	return &objectsForShutdown{moscMap: moscMap, mosbMap: mosbMap, jobMap: jobMap, all: all}
 }
 
-func setupShutdownDelayHandlerForTest(ctx context.Context, cancelFunc context.CancelFunc, t *testing.T, shutdownTestObjects shutdownTestObjects) *shutdownDelayHandler {
-	mcfgObjects := []runtime.Object{}
-	other := []runtime.Object{}
+// setupTestListers creates the Listers struct needed by the shutdown handler
+// from indexers populated with the test objects.
+func setupTestListers(_ context.Context, t *testing.T, objs shutdownTestObjects) Listers {
+	t.Helper()
 
-	// Filter mcfgv1 objects out of the runtime.Object params.
-	for _, obj := range shutdownTestObjects.toRuntimeObjects() {
+	keyFunc := cache.MetaNamespaceKeyFunc
+
+	mosbIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	moscIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	jobIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	cmIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+	secretIndexer := cache.NewIndexer(keyFunc, cache.Indexers{})
+
+	for _, obj := range objs.toRuntimeObjects() {
 		switch o := obj.(type) {
 		case *mcfgv1.MachineOSConfig:
-			mcfgObjects = append(mcfgObjects, o)
+			moscIndexer.Add(o)
 		case *mcfgv1.MachineOSBuild:
-			mcfgObjects = append(mcfgObjects, o)
-		default:
-			other = append(other, o)
+			mosbIndexer.Add(o)
+		case *batchv1.Job:
+			jobIndexer.Add(o)
+		case *corev1.ConfigMap:
+			cmIndexer.Add(o)
+		case *corev1.Secret:
+			secretIndexer.Add(o)
 		}
 	}
 
-	mcfgclient := fakeclientmachineconfigv1.NewSimpleClientset(mcfgObjects...)
-	kubeclient := fakecorev1client.NewSimpleClientset(other...)
-
-	informers := newInformers(mcfgclient, kubeclient)
-	listers := informers.listers()
-
-	// Start the informers.
-	informers.start(ctx)
-	if !cache.WaitForCacheSync(ctx.Done(), informers.hasSynced...) {
-		t.FailNow()
+	return Listers{
+		MachineOSBuildLister:  mcfglistersv1.NewMachineOSBuildLister(mosbIndexer),
+		MachineOSConfigLister: mcfglistersv1.NewMachineOSConfigLister(moscIndexer),
+		JobLister:             batchlisterv1.NewJobLister(jobIndexer),
+		ConfigMapLister:       corelistersv1.NewConfigMapLister(cmIndexer),
+		SecretLister:          corelistersv1.NewSecretLister(secretIndexer),
 	}
+}
 
+func setupShutdownDelayHandlerForTest(ctx context.Context, cancelFunc context.CancelFunc, t *testing.T, shutdownTestObjects shutdownTestObjects) *ShutdownDelayHandler {
+	listers := setupTestListers(ctx, t, shutdownTestObjects)
 	return newTestShutdownDelayHandler(ctx, cancelFunc, t, listers)
 }
 
@@ -499,21 +511,20 @@ func setupShutdownDelayHandlerForTest(ctx context.Context, cancelFunc context.Ca
 // well as a goroutine that is used to advance the fake clock ahead in time.
 //
 // By doing this, we ensure that both the delay computation and the context
-// cancellation paths of the shutdownDelayHandler event loop are targeted.
+// cancellation paths of the ShutdownDelayHandler event loop are targeted.
 // Whether the test had the desired outcome or not is dependent upon the caller
 // to verify.
 //
 // Note: This function accepts an unused *testing.T parameter to ensure that it
 // is only used in the testing path.
-func newTestShutdownDelayHandler(ctx context.Context, cancel context.CancelFunc, _ *testing.T, l *listers) *shutdownDelayHandler {
+func newTestShutdownDelayHandler(ctx context.Context, cancel context.CancelFunc, _ *testing.T, l Listers) *ShutdownDelayHandler {
 	// Instantiate the FakeClock implementation. This allows us to implement the
 	// test suite without any complex sleep conditions which could cause a race
 	// and/or flaky tests.
 	fc := fakeclock.NewFakeClock(time.Now())
 
-	// Instantiate the shutdownDelayHandler and embed the fake clock implementation.
-	sh := newShutdownDelayHandler(l)
-	sh.clock = fc
+	// Instantiate the ShutdownDelayHandler and embed the fake clock implementation.
+	sh := NewShutdownDelayHandler(l, fc)
 
 	// Spawn a goroutine that drives the fake clock.
 	go func() {
