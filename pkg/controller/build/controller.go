@@ -256,6 +256,17 @@ func (bc *Controller) ShutdownChan() <-chan struct{} {
 	return bc.shutdownChan
 }
 
+// HasSyncedFuncs returns the informer HasSynced functions for use with
+// cache.WaitForCacheSync.  This is primarily intended for tests that
+// need to wait for informer caches to populate before exercising the
+// controller.
+func (bc *Controller) HasSyncedFuncs() []cache.InformerSynced {
+	if bc.informers == nil {
+		return nil
+	}
+	return bc.informers.hasSynced
+}
+
 func (bc *Controller) shutdownController() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), bc.config.MaxShutdownDelay)
 	defer shutdownCancel()

@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	coreclientsetv1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 
@@ -189,6 +190,11 @@ func (ctrl *OSBuildController) Run(parentCtx context.Context, workers int) {
 // finishes its graceful shutdown.
 func (ctrl *OSBuildController) ShutdownChan() <-chan struct{} {
 	return ctrl.shutdownChan
+}
+
+// hasSyncedFuncs returns the informer HasSynced functions for test use.
+func (ctrl *OSBuildController) hasSyncedFuncs() []cache.InformerSynced {
+	return ctrl.inner.HasSyncedFuncs()
 }
 
 // RegisterOCLMetrics registers all OCL-related Prometheus metrics.

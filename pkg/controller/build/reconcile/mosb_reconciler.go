@@ -81,6 +81,15 @@ func (r *MOSBReconciler) ReconcileMOSB(ctx context.Context, key string) error {
 	}
 
 	mosb = mosb.DeepCopy()
+
+	// Synthetic (pre-built) builds are fully managed by the Seeder.
+	// Skip all reconciliation to avoid racing with the Seeder's status
+	// writes (e.g., the Seeded condition on the parent MOSC).
+	if isPreBuiltMOSB(mosb) {
+		klog.V(4).Infof("MOSBReconciler: %q is a synthetic pre-built build, skipping", mosb.Name)
+		return nil
+	}
+
 	state := ctrlcommon.NewMachineOSBuildState(mosb)
 
 	// Terminal states — nothing to do.
@@ -90,12 +99,6 @@ func (r *MOSBReconciler) ReconcileMOSB(ctx context.Context, key string) error {
 
 	// Transient states — build in progress, let it run.
 	if state.IsInTransientState() {
-		return nil
-	}
-
-	// Synthetic (pre-built) builds should never start a real build.
-	if isPreBuiltMOSB(mosb) {
-		klog.V(4).Infof("MOSBReconciler: %q is a synthetic pre-built build, skipping", mosb.Name)
 		return nil
 	}
 

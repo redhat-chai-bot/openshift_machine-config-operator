@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/tools/cache"
 )
 
 // ---------------------------------------------------------------------------
@@ -129,8 +130,13 @@ func newScenarioHarness(t *testing.T, mcfgObjs []runtime.Object, kubeObjs []runt
 	ctrlCtx, cancel := context.WithCancel(context.Background())
 	go ctrl.Run(ctrlCtx, 1)
 
-	// Give informers time to sync.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for informer caches to sync rather than sleeping.
+	syncCtx, syncCancel := context.WithTimeout(ctrlCtx, 5*time.Second)
+	defer syncCancel()
+	if !cache.WaitForCacheSync(syncCtx.Done(), ctrl.hasSyncedFuncs()...) {
+		cancel()
+		t.Fatal("informer caches failed to sync")
+	}
 
 	return &scenarioHarness{
 		mcfgclient: mcfgclient,
@@ -542,12 +548,39 @@ func TestFullController_SeedingFlowE2E(t *testing.T) {
 	}
 
 	// Verify MOSC status has the seeded image pullspec.
-	updated, err := h.getMOSC(ctx, scenarioMOSCName)
+	err = wait.PollUntilContextTimeout(ctx, scenarioPollInterval, scenarioPollTimeout, true, func(ctx context.Context) (bool, error) {
+		updated, err := h.getMOSC(ctx, scenarioMOSCName)
+		if err != nil {
+			return false, err
+		}
+		return string(updated.Status.CurrentImagePullSpec) == preBuiltImage, nil
+	})
 	if err != nil {
-		t.Fatalf("get updated MOSC: %v", err)
+		t.Fatalf("MOSC status pullspec not updated: %v", err)
 	}
-	if string(updated.Status.CurrentImagePullSpec) != preBuiltImage {
-		t.Errorf("expected status pullspec %q, got %q", preBuiltImage, updated.Status.CurrentImagePullSpec)
+
+	// Verify the Seeded condition.  The seeder writes it via
+	// UpdateStatus; there is a narrow race window where the MOSB
+	// reconciler's handleTerminalState can overwrite the status before
+	// the informer propagates the seeder's write.  Poll briefly to let
+	// the system stabilize.
+	err = wait.PollUntilContextTimeout(ctx, scenarioPollInterval, scenarioPollTimeout, true, func(ctx context.Context) (bool, error) {
+		updated, err := h.getMOSC(ctx, scenarioMOSCName)
+		if err != nil {
+			return false, err
+		}
+		for _, c := range updated.Status.Conditions {
+			if c.Type == constants.MachineOSConfigSeeded && c.Status == metav1.ConditionTrue {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	if err != nil {
+		// Read once more for diagnostics.
+		updated, _ := h.getMOSC(ctx, scenarioMOSCName)
+		t.Fatalf("expected condition %q=True on MOSC: %v (conditions=%+v)",
+			constants.MachineOSConfigSeeded, err, updated.Status.Conditions)
 	}
 
 	t.Logf("seeding flow completed: MOSC %q seeded with image %q", scenarioMOSCName, preBuiltImage)
