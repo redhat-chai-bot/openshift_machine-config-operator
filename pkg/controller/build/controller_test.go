@@ -1,5 +1,9 @@
 package build
 
+// Tests for the Controller type (multi-queue shell, enqueue helpers,
+// shutdown, informer wiring). The test file lives in the same package
+// to access unexported types like informers, listers, and queue internals.
+
 import (
 	"context"
 	"fmt"
