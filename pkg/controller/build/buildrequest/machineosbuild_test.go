@@ -158,3 +158,42 @@ func TestMachineOSBuildLabelConsistency(t *testing.T) {
 	assert.Equal(t, mosb.Labels, utils.GetMachineOSBuildLabels(obj.MachineOSConfig, obj.MachineConfigPool))
 	assert.Equal(t, obj.MachineOSBuild.Labels, mosb.Labels)
 }
+
+// TestMachineOSBuildHashStability is a regression test that pins the MD5-based
+// MOSB name for a known set of inputs. The hash MUST remain byte-identical
+// across runs — any drift means the MOSB naming contract has been broken.
+//
+// Run with: go test -run TestMachineOSBuildHashStability -count=1000
+func TestMachineOSBuildHashStability(t *testing.T) {
+	t.Parallel()
+
+	poolName := "worker"
+
+	// Use the same constructors as TestMachineOSBuild to ensure we get the
+	// same canonical inputs that produced the pinned hash.
+	mc := fixtures.NewObjectsForTest(poolName).RenderedMachineConfig
+	mosc := testhelpers.NewMachineOSConfigBuilder(poolName).WithMachineConfigPool(poolName).MachineOSConfig()
+	mosc.Spec.RenderedImagePushSpec = "registry.hostname.com/org/repo:latest"
+	mcp := testhelpers.NewMachineConfigPoolBuilder(poolName).MachineConfigPool()
+
+	opts := MachineOSBuildOpts{
+		MachineConfig:     mc,
+		MachineOSConfig:   mosc,
+		MachineConfigPool: mcp,
+	}
+
+	// This is the expected, pinned hash name. If this value ever changes, it
+	// means the hash inputs or algorithm have drifted and must be investigated.
+	const pinnedName = "worker-699e6be74658adcb3ff2b48f32cd1584"
+
+	mosb, err := NewMachineOSBuild(opts)
+	assert.NoError(t, err)
+	assert.Equal(t, pinnedName, mosb.Name,
+		"MOSB name hash has drifted from the pinned value — this is a breaking change")
+
+	// Verify the hash portion alone is stable.
+	hash, err := opts.getHashedName()
+	assert.NoError(t, err)
+	assert.Equal(t, "699e6be74658adcb3ff2b48f32cd1584", hash,
+		"raw MD5 hash has drifted — the salt, input ordering, or serialisation changed")
+}
