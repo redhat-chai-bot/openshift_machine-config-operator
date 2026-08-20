@@ -133,6 +133,13 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 		if apihelpers.IsMachineConfigPoolConditionTrue(mcp.Status.Conditions, mcfgv1.MachineConfigPoolImageBuildDegraded) {
 			r.events.RecordBuildRecovered(mosc)
 		}
+		// Clean up ephemeral ConfigMaps/Secrets created for the build.
+		// Use NewEphemeralCleaner (not NewJobImageBuildCleaner) because the
+		// job completed successfully and does not need to be stopped/deleted.
+		cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)
+		if err := cleaner.Clean(ctx); err != nil {
+			klog.Warningf("MOSBReconciler: could not clean ephemeral objects for %q: %v", mosb.Name, err)
+		}
 		return r.degraded.UpdateImageBuildDegraded(ctx, mcp, mosc)
 	}
 

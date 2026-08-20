@@ -32,6 +32,14 @@ func newCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interfa
 	}
 }
 
+// NewEphemeralCleaner creates a Cleaner that only removes ephemeral build
+// objects (ConfigMaps and Secrets) without stopping the build job. Use this
+// on the success path where the job completed normally and does not need to
+// be deleted.
+func NewEphemeralCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild) Cleaner {
+	return newCleaner(kubeclient, mcfgclient, mosb, nil)
+}
+
 // Constructs an instance of the cleaner using a Builder object. This will
 // refer to fields on the Builder object to delete ephemeral build objects
 // instead of a MachineOSConfig or MachineOSBuild.

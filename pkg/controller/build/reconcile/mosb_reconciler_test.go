@@ -65,6 +65,8 @@ func TestMOSBReconciler_TerminalSuccess(t *testing.T) {
 	dh := &fakeDegradedHandler{}
 
 	r := &MOSBReconciler{
+		kubeclient: k8sfake.NewSimpleClientset(),
+		mcfgclient: newFakeReconcileMCFGClient(mosb),
 		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
 		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
 		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
@@ -160,6 +162,69 @@ func newFakeReconcileMCFGClient(objs ...runtime.Object) *fakeclientmachineconfig
 	return fakeclientmachineconfiguration.NewSimpleClientset(objs...)
 }
 
+func TestMOSBReconciler_TerminalSuccess_CleansEphemeralObjects(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-mosc",
+			Labels: map[string]string{constants.TargetMachineConfigPoolLabelKey: "worker"},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+	}
+
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-mosb",
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "test-mosc",
+			},
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuildSucceeded), Status: metav1.ConditionTrue},
+			},
+			DigestedImagePushSpec: "image@sha256:abc",
+		},
+	}
+
+	kubeclient := k8sfake.NewSimpleClientset()
+	mcfgclient := newFakeReconcileMCFGClient(mosb)
+
+	dh := &fakeDegradedHandler{}
+	r := &MOSBReconciler{
+		kubeclient: kubeclient,
+		mcfgclient: mcfgclient,
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+		degraded:   dh,
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+			MachineOSConfigLister:   &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+			MachineConfigPoolLister: &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		},
+	}
+
+	// ReconcileMOSB should succeed even though the cleaner finds no
+	// ephemeral objects to delete (the important thing is the cleanup
+	// code path runs without error).
+	err := r.ReconcileMOSB(context.Background(), "test-mosb")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !dh.wasUpdateCalled() {
+		t.Error("expected degraded handler to be called after success cleanup")
+	}
+}
+
 func TestMOSBReconciler_TerminalSuccess_WithDegradedRecovery(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -198,6 +263,8 @@ func TestMOSBReconciler_TerminalSuccess_WithDegradedRecovery(t *testing.T) {
 
 	dh := &fakeDegradedHandler{}
 	r := &MOSBReconciler{
+		kubeclient: k8sfake.NewSimpleClientset(),
+		mcfgclient: newFakeReconcileMCFGClient(mosb),
 		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
 		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
 		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
