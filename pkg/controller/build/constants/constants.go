@@ -55,7 +55,12 @@ const (
 )
 
 // MachineOSConfig condition types
-// TODO: These should eventually be moved to the API package once MOSC conditions are finalized
+//
+// TODO(WS1): Candidates for migration to the API package
+// (openshift/api/machineconfiguration/v1) once MOSC conditions are
+// finalized upstream. MachineOSConfigSeeded and ReasonPreBuiltImageSeeded
+// below are part of the pre-built-image seeding contract and should move
+// together as a unit. Do NOT move in this workstream — flag only.
 const (
 	// MachineOSConfigSeeded indicates that a MachineOSConfig has been seeded with a pre-built image at install time
 	MachineOSConfigSeeded = "Seeded"
@@ -64,6 +69,8 @@ const (
 // MachineOSConfig condition reasons
 const (
 	// ReasonPreBuiltImageSeeded indicates the MachineOSConfig was seeded with a pre-built image
+	//
+	// TODO(WS1): Candidate for migration to API package — see MachineOSConfigSeeded above.
 	ReasonPreBuiltImageSeeded = "PreBuiltImageSeeded"
 )
 
