@@ -11,9 +11,48 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/cache"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
 )
+
+// newTestListers creates Listers backed by in-memory indexers populated
+// from the given fake clients' objects.
+func newTestListers(
+	kubeObjects []runtime.Object,
+	mcfgObjects []runtime.Object,
+) *Listers {
+	secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	mcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	ccIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+
+	for _, obj := range kubeObjects {
+		switch o := obj.(type) {
+		case *corev1.Secret:
+			secretIndexer.Add(o)
+		case *corev1.ConfigMap:
+			cmIndexer.Add(o)
+		}
+	}
+	for _, obj := range mcfgObjects {
+		switch o := obj.(type) {
+		case *mcfgv1.MachineConfig:
+			mcIndexer.Add(o)
+		case *mcfgv1.ControllerConfig:
+			ccIndexer.Add(o)
+		}
+	}
+
+	return &Listers{
+		SecretLister:           corelistersv1.NewSecretLister(secretIndexer),
+		ConfigMapLister:        corelistersv1.NewConfigMapLister(cmIndexer),
+		MachineConfigLister:    mcfglistersv1.NewMachineConfigLister(mcIndexer),
+		ControllerConfigLister: mcfglistersv1.NewControllerConfigLister(ccIndexer),
+	}
+}
 
 func TestBuildRequestOpts(t *testing.T) {
 	testCases := []struct {
@@ -131,17 +170,26 @@ func TestBuildRequestOpts(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 
-		kubeclient, mcfgclient, lobj, _ := fixtures.GetClientsForTest(t)
+		_, _, lobj, _ := fixtures.GetClientsForTest(t)
 
 		// Ensure BaseImagePullSecret is nil on the MOSC.
 		lobj.MachineOSConfig.Spec.BaseImagePullSecret = nil
 
-		// Remove the fallback global pull secret so getValidatedSecret fails.
-		_ = kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Delete(ctx, ctrlcommon.GlobalPullSecretCopyName, metav1.DeleteOptions{})
+		// Build listers from the default objects but WITHOUT the global
+		// pull secret so that getValidatedSecret fails.
+		kubeObjs, mcfgObjs := fixtures.DefaultObjectsForListers()
+		var filtered []runtime.Object
+		for _, obj := range kubeObjs {
+			if s, ok := obj.(*corev1.Secret); ok && s.Name == ctrlcommon.GlobalPullSecretCopyName {
+				continue
+			}
+			filtered = append(filtered, obj)
+		}
+		l := newTestListers(filtered, mcfgObjs)
 
 		// This must not panic; it should return an error referencing
 		// the fallback secret name.
-		_, err := newBuildRequestOptsFromAPI(ctx, kubeclient, mcfgclient, lobj.MachineOSBuild, lobj.MachineOSConfig)
+		_, err := newBuildRequestOptsFromAPI(ctx, l, lobj.MachineOSBuild, lobj.MachineOSConfig)
 		assert.Error(t, err, "expected error when pull secret is missing")
 		assert.Contains(t, err.Error(), ctrlcommon.GlobalPullSecretCopyName)
 	})
@@ -154,13 +202,17 @@ func TestBuildRequestOpts(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
 
-			kubeclient, mcfgclient, lobj, _ := fixtures.GetClientsForTestWithAdditionalObjects(t, testCase.addlObjects, []runtime.Object{})
+			_, _, lobj, _ := fixtures.GetClientsForTestWithAdditionalObjects(t, testCase.addlObjects, []runtime.Object{})
 
 			if testCase.addlObjectSetup != nil {
 				testCase.addlObjectSetup(t, lobj)
 			}
 
-			brOpts, err := newBuildRequestOptsFromAPI(ctx, kubeclient, mcfgclient, lobj.MachineOSBuild, lobj.MachineOSConfig)
+			kubeObjs, mcfgObjs := fixtures.DefaultObjectsForListers()
+			kubeObjs = append(kubeObjs, testCase.addlObjects...)
+			l := newTestListers(kubeObjs, mcfgObjs)
+
+			brOpts, err := newBuildRequestOptsFromAPI(ctx, l, lobj.MachineOSBuild, lobj.MachineOSConfig)
 			assert.NoError(t, err)
 
 			if testCase.addlAsserts != nil {

@@ -5,17 +5,54 @@ import (
 	"testing"
 	"time"
 
+	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	testhelpers "github.com/openshift/machine-config-operator/test/helpers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	fakecorev1client "k8s.io/client-go/kubernetes/fake"
+	corelistersv1 "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/cache"
 )
+
+// newTestBRListers creates buildrequest.Listers backed by in-memory indexers.
+func newTestBRListers(kubeObjects []runtime.Object, mcfgObjects []runtime.Object) *buildrequest.Listers {
+	secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	mcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+	ccIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
+
+	for _, obj := range kubeObjects {
+		switch o := obj.(type) {
+		case *corev1.Secret:
+			secretIndexer.Add(o)
+		case *corev1.ConfigMap:
+			cmIndexer.Add(o)
+		}
+	}
+	for _, obj := range mcfgObjects {
+		switch o := obj.(type) {
+		case *mcfgv1.MachineConfig:
+			mcIndexer.Add(o)
+		case *mcfgv1.ControllerConfig:
+			ccIndexer.Add(o)
+		}
+	}
+
+	return &buildrequest.Listers{
+		SecretLister:           corelistersv1.NewSecretLister(secretIndexer),
+		ConfigMapLister:        corelistersv1.NewConfigMapLister(cmIndexer),
+		MachineConfigLister:    mcfglistersv1.NewMachineConfigLister(mcIndexer),
+		ControllerConfigLister: mcfglistersv1.NewControllerConfigLister(ccIndexer),
+	}
+}
 
 // This test ensures that cleanups for one build do not interfere with the
 // objects for another build.
@@ -33,11 +70,23 @@ func TestPreparer(t *testing.T) {
 	kubeclient, mcfgclient, _, kubeassert := fixtures.GetClientsForTestWithAdditionalObjects(t, []runtime.Object{}, addlObjects)
 	kubeassert = kubeassert.WithContext(ctx).Now()
 
+	kubeObjs, mcfgObjs := fixtures.DefaultObjectsForListers()
+	// Also add MachineConfigs from the secondary pools.
+	for _, mc := range obj2.MachineConfigs {
+		mcfgObjs = append(mcfgObjs, mc)
+	}
+	mcfgObjs = append(mcfgObjs, obj2.RenderedMachineConfig)
+	for _, mc := range obj3.MachineConfigs {
+		mcfgObjs = append(mcfgObjs, mc)
+	}
+	mcfgObjs = append(mcfgObjs, obj3.RenderedMachineConfig)
+	brListers := newTestBRListers(kubeObjs, mcfgObjs)
+
 	// Create three preparers assigned to their own MachineOSBuild though sharing
-	// the same kubeclient and mcfgclient objects.
-	p1 := NewPreparer(kubeclient, mcfgclient, obj1.MachineOSBuild, obj1.MachineOSConfig)
-	p2 := NewPreparer(kubeclient, mcfgclient, obj2.MachineOSBuild, obj2.MachineOSConfig)
-	p3 := NewPreparer(kubeclient, mcfgclient, obj3.MachineOSBuild, obj3.MachineOSConfig)
+	// the same kubeclient and lister objects.
+	p1 := NewPreparer(kubeclient, brListers, obj1.MachineOSBuild, obj1.MachineOSConfig)
+	p2 := NewPreparer(kubeclient, brListers, obj2.MachineOSBuild, obj2.MachineOSConfig)
+	p3 := NewPreparer(kubeclient, brListers, obj3.MachineOSBuild, obj3.MachineOSConfig)
 
 	// Run all of the preparers and ensure that all of the build objects have been created.
 	br1, err := p1.Prepare(ctx)

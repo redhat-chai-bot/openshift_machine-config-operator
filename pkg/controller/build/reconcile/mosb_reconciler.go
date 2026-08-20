@@ -36,6 +36,7 @@ type MOSBReconciler struct {
 	degraded services.DegradedHandler
 
 	utilListers *utils.Listers
+	brListers   *buildrequest.Listers
 }
 
 // NewMOSBReconciler constructs a MOSBReconciler with injected dependencies.
@@ -50,6 +51,7 @@ func NewMOSBReconciler(
 	metrics services.MetricsRecorder,
 	degraded services.DegradedHandler,
 	utilListers *utils.Listers,
+	brListers *buildrequest.Listers,
 ) *MOSBReconciler {
 	return &MOSBReconciler{
 		mcfgclient:  mcfgclient,
@@ -62,6 +64,7 @@ func NewMOSBReconciler(
 		metrics:     metrics,
 		degraded:    degraded,
 		utilListers: utilListers,
+		brListers:   brListers,
 	}
 }
 
@@ -243,7 +246,7 @@ func (r *MOSBReconciler) startBuild(ctx context.Context, mosb *mcfgv1.MachineOSB
 	r.events.RecordBuildPreparing(mosb, fmt.Sprintf("creating build job for pool %q", poolName))
 	r.metrics.RecordBuildStarted(poolName)
 
-	if err := imagebuilder.NewJobImageBuilder(r.kubeclient, r.mcfgclient, mosb, mosc).Start(ctx); err != nil {
+	if err := imagebuilder.NewJobImageBuilder(r.kubeclient, r.mcfgclient, r.brListers, mosb, mosc).Start(ctx); err != nil {
 		var validationErr *buildrequest.ContainerfileValidationError
 		if errors.As(err, &validationErr) {
 			klog.Warningf("MOSBReconciler: %q has invalid Containerfile, marking failed: %v", mosb.Name, validationErr)

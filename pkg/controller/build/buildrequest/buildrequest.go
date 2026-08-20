@@ -10,7 +10,6 @@ import (
 	"text/template"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	command "github.com/openshift/imagebuilder/dockerfile/command"
 	parser "github.com/openshift/imagebuilder/dockerfile/parser"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
@@ -21,7 +20,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 )
 
@@ -82,9 +80,9 @@ type buildRequestImpl struct {
 	userContainerfile string
 }
 
-// Constructs an imageBuildRequest from the Kube API server.
-func NewBuildRequestFromAPI(ctx context.Context, kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (BuildRequest, error) {
-	opts, err := newBuildRequestOptsFromAPI(ctx, kubeclient, mcfgclient, mosb, mosc)
+// Constructs an imageBuildRequest using informer-backed listers.
+func NewBuildRequestFromAPI(ctx context.Context, l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (BuildRequest, error) {
+	opts, err := newBuildRequestOptsFromAPI(ctx, l, mosb, mosc)
 	if err != nil {
 		return nil, err
 	}

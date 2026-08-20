@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	corev1 "k8s.io/api/core/v1"
@@ -28,20 +27,20 @@ type preparerImpl struct {
 	mosb       *mcfgv1.MachineOSBuild
 	mosc       *mcfgv1.MachineOSConfig
 	kubeclient clientset.Interface
-	mcfgclient mcfgclientset.Interface
+	listers    *buildrequest.Listers
 }
 
-func NewPreparer(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) Preparer {
+func NewPreparer(kubeclient clientset.Interface, listers *buildrequest.Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) Preparer {
 	return &preparerImpl{
 		kubeclient: kubeclient,
-		mcfgclient: mcfgclient,
+		listers:    listers,
 		mosb:       mosb.DeepCopy(),
 		mosc:       mosc.DeepCopy(),
 	}
 }
 
 func (p *preparerImpl) Prepare(ctx context.Context) (buildrequest.BuildRequest, error) {
-	br, err := buildrequest.NewBuildRequestFromAPI(ctx, p.kubeclient, p.mcfgclient, p.mosb, p.mosc)
+	br, err := buildrequest.NewBuildRequestFromAPI(ctx, p.listers, p.mosb, p.mosc)
 	if err != nil {
 		return nil, fmt.Errorf("could not get imagebuildrequestopts: %w", err)
 	}

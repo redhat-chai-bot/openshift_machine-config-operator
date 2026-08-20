@@ -206,6 +206,27 @@ func newMachineConfigsFromPool(mcp *mcfgv1.MachineConfigPool) ([]*mcfgv1.Machine
 	return out, renderedMC
 }
 
+// DefaultObjectsForListers returns the default kube and MCO objects suitable
+// for populating test listers. The kube objects include the images configmap,
+// pull secrets, and the global pull secret. The mcfg objects include a
+// ControllerConfig and the MachineConfigs for the "worker" pool.
+func DefaultObjectsForListers() (kubeObjs []runtime.Object, mcfgObjs []runtime.Object) {
+	obj := NewObjectsForTest("worker")
+	kubeObjs = defaultKubeObjects()
+	mcfgObjs = []runtime.Object{
+		&mcfgv1.ControllerConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "machine-config-controller",
+			},
+		},
+	}
+	for _, mc := range obj.MachineConfigs {
+		mcfgObjs = append(mcfgObjs, mc)
+	}
+	mcfgObjs = append(mcfgObjs, obj.RenderedMachineConfig)
+	return kubeObjs, mcfgObjs
+}
+
 // Gets an example machine-config-operator-images ConfigMap.
 func getImagesConfigMap() *corev1.ConfigMap {
 	return &corev1.ConfigMap{

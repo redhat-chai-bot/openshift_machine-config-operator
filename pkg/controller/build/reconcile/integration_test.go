@@ -266,6 +266,7 @@ func TestIntegration_MOSBTerminalFailureTriggersDegraded(t *testing.T) {
 			MachineOSConfigLister:   moscLister,
 			MachineConfigPoolLister: mcpLister,
 		},
+		nil,
 	)
 
 	if err := mosbReconciler.ReconcileMOSB(context.Background(), "failed-mosb"); err != nil {
@@ -360,7 +361,7 @@ func TestIntegration_CrossControllerChain_MOSCToMOSBToPool(t *testing.T) {
 
 	mosbReconciler := NewMOSBReconciler(
 		mcfgclient, nil, mutableMOSB, moscLister, mcpLister, mcLister,
-		events, services.NewNoopMetricsRecorder(), dh, utilListers,
+		events, services.NewNoopMetricsRecorder(), dh, utilListers, nil,
 	)
 
 	poolReconciler := NewPoolReconciler(
@@ -462,7 +463,7 @@ func TestIntegration_ConcurrencyStressor(t *testing.T) {
 	moscR := NewMOSCReconciler(mcfgclient, kubeclient, moscLister, mosbLister, mcpLister, mcLister,
 		events, metrics, &fakeSeeder{}, &fakeReuseChecker{})
 	mosbR := NewMOSBReconciler(mcfgclient, kubeclient, mosbLister, moscLister, mcpLister, mcLister,
-		events, metrics, dh, utilListers)
+		events, metrics, dh, utilListers, nil)
 	poolR := NewPoolReconciler(mcfgclient, mcpLister, moscLister, mosbLister, mcLister,
 		events, metrics, dh, utilListers)
 	jobR := NewJobReconciler(mcfgclient, kubeclient, jobLister, mosbLister, moscLister,

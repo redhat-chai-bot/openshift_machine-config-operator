@@ -52,7 +52,7 @@ func TestCleanerToleratesNotFound(t *testing.T) {
 	mcfgclient := fakeclientmachineconfigv1.NewSimpleClientset()
 
 	c := &cleanerImpl{
-		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, mosb, mosc, nil, mcfgv1.JobBuilder),
+		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, nil, mosb, mosc, nil, mcfgv1.JobBuilder),
 	}
 
 	// deleteConfigMap should tolerate NotFound.
@@ -94,7 +94,7 @@ func TestCleanerDeletesExistingConfigMap(t *testing.T) {
 	}
 
 	c := &cleanerImpl{
-		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, mosb, nil, nil, mcfgv1.JobBuilder),
+		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, nil, mosb, nil, nil, mcfgv1.JobBuilder),
 	}
 
 	err := c.deleteConfigMap(ctx, "build-cm", mosb.Name, "job-uid-456")

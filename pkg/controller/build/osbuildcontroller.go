@@ -8,6 +8,7 @@ import (
 
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	"github.com/openshift/client-go/machineconfiguration/clientset/versioned/scheme"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/reconcile"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
@@ -110,6 +111,15 @@ func newOSBuildController(
 	reuseChecker := services.NewImageReuseChecker(pruner, kubeclient, l.controllerConfigLister)
 	seeder := services.NewSeeder(mcfgclient, kubeclient, l.machineConfigPoolLister, l.machineConfigLister)
 
+	// Build request listers for resolving build inputs from the informer
+	// cache instead of making direct API server calls.
+	brListers := &buildrequest.Listers{
+		SecretLister:           l.sourceSecretLister,
+		ConfigMapLister:        l.sourceConfigmapLister,
+		MachineConfigLister:    l.machineConfigLister,
+		ControllerConfigLister: l.controllerConfigLister,
+	}
+
 	// Construct the 4 reconcilers.
 	moscR := reconcile.NewMOSCReconciler(
 		mcfgclient, kubeclient, l.machineOSConfigLister, l.machineOSBuildLister,
@@ -120,7 +130,7 @@ func newOSBuildController(
 	mosbR := reconcile.NewMOSBReconciler(
 		mcfgclient, kubeclient, l.machineOSBuildLister, l.machineOSConfigLister,
 		l.machineConfigPoolLister, l.machineConfigLister,
-		events, metrics, degraded, utilListers,
+		events, metrics, degraded, utilListers, brListers,
 	)
 
 	poolR := reconcile.NewPoolReconciler(
