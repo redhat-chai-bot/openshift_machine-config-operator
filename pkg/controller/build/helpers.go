@@ -7,15 +7,12 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/client-go/machineconfiguration/clientset/versioned"
-	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/openshift/machine-config-operator/pkg/secrets"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	corelisterv1 "k8s.io/client-go/listers/core/v1"
 )
 
 // ValidateOnClusterBuildConfig validates the existence of the MachineOSConfig and the required build inputs.
@@ -89,18 +86,6 @@ func validateMachineOSConfig(mcpGetter func(string) (*mcfgv1.MachineConfigPool, 
 	return nil
 }
 
-func ValidateMachineOSConfigFromListers(mcpLister mcfglistersv1.MachineConfigPoolLister, secretLister corelisterv1.SecretLister, mosc *mcfgv1.MachineOSConfig) error {
-	mcpGetter := func(name string) (*mcfgv1.MachineConfigPool, error) {
-		return mcpLister.Get(name)
-	}
-
-	secretGetter := func(name string) (*corev1.Secret, error) {
-		return secretLister.Secrets(ctrlcommon.MCONamespace).Get(name)
-	}
-
-	return validateMachineOSConfig(mcpGetter, secretGetter, mosc)
-}
-
 func validateSecret(secretGetter func(string) (*corev1.Secret, error), mosc *mcfgv1.MachineOSConfig, secretName string) error {
 	if secretName == "" {
 		return fmt.Errorf("no secret name provided")
@@ -117,14 +102,4 @@ func validateSecret(secretGetter func(string) (*corev1.Secret, error), mosc *mcf
 	}
 
 	return secrets.ValidateKubernetesImageRegistrySecret(secret)
-}
-
-// Determines if a given MachineOSConfig has the current build annotation.
-func hasCurrentBuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
-	return metav1.HasAnnotation(mosc.ObjectMeta, constants.CurrentMachineOSBuildAnnotationKey) && mosc.Annotations[constants.CurrentMachineOSBuildAnnotationKey] != ""
-}
-
-// Determines if a given MachineOSConfig has the rebuild annotation.
-func hasRebuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
-	return metav1.HasAnnotation(mosc.ObjectMeta, constants.RebuildMachineOSConfigAnnotationKey)
 }
