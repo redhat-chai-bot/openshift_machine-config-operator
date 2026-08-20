@@ -3,6 +3,8 @@ package utils
 import (
 	"fmt"
 
+	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -39,4 +41,25 @@ func getRequiredKeyFromMap(in map[string]string, key string) (string, error) {
 	}
 
 	return val, nil
+}
+
+// HasCurrentBuildAnnotation checks if the MachineOSConfig has the
+// current-build annotation set.
+func HasCurrentBuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
+	if mosc.Annotations == nil {
+		return false
+	}
+	_, ok := mosc.Annotations[constants.CurrentMachineOSBuildAnnotationKey]
+	return ok
+}
+
+// HasRebuildAnnotation checks if the MachineOSConfig has the rebuild
+// annotation set, indicating that the current build should be deleted
+// and recreated.
+func HasRebuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
+	if mosc.Annotations == nil {
+		return false
+	}
+	_, ok := mosc.Annotations[constants.RebuildMachineOSConfigAnnotationKey]
+	return ok
 }

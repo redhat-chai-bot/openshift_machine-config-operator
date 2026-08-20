@@ -76,12 +76,12 @@ func (s *seeder) GetPreBuiltImage(mosc *mcfgv1.MachineOSConfig) (string, bool) {
 
 func (s *seeder) ShouldSeed(mosc *mcfgv1.MachineOSConfig) bool {
 	_, hasImage := s.GetPreBuiltImage(mosc)
-	return hasImage && !hasCurrentBuildAnnotation(mosc)
+	return hasImage && !utils.HasCurrentBuildAnnotation(mosc)
 }
 
 func (s *seeder) NeedsAnnotationCleanup(mosc *mcfgv1.MachineOSConfig) bool {
 	_, hasImage := s.GetPreBuiltImage(mosc)
-	return hasCurrentBuildAnnotation(mosc) &&
+	return utils.HasCurrentBuildAnnotation(mosc) &&
 		mosc.Status.CurrentImagePullSpec != "" &&
 		hasImage
 }
@@ -155,8 +155,8 @@ func (s *seeder) createSyntheticMachineOSBuild(ctx context.Context, mosc *mcfgv1
 		},
 		Spec: mcfgv1.MachineOSBuildSpec{
 			RenderedImagePushSpec: mosc.Spec.RenderedImagePushSpec,
-			MachineConfig:        mcfgv1.MachineConfigReference{Name: mcp.Spec.Configuration.Name},
-			MachineOSConfig:      mcfgv1.MachineOSConfigReference{Name: mosc.Name},
+			MachineConfig:         mcfgv1.MachineConfigReference{Name: mcp.Spec.Configuration.Name},
+			MachineOSConfig:       mcfgv1.MachineOSConfigReference{Name: mosc.Name},
 		},
 		Status: mcfgv1.MachineOSBuildStatus{
 			BuildStart:            &now,
@@ -252,13 +252,4 @@ func (s *seeder) ensureSecretExists(ctx context.Context, secretName string) erro
 		return fmt.Errorf("required secret %s not found in %s namespace", secretName, ctrlcommon.MCONamespace)
 	}
 	return fmt.Errorf("failed to check if secret %s exists: %w", secretName, err)
-}
-
-// hasCurrentBuildAnnotation checks if the MOSC has the current-build annotation set.
-func hasCurrentBuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
-	if mosc.Annotations == nil {
-		return false
-	}
-	_, ok := mosc.Annotations[constants.CurrentMachineOSBuildAnnotationKey]
-	return ok
 }

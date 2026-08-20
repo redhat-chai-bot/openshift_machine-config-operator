@@ -9,6 +9,7 @@ import (
 	fakeclientmachineconfigurationv2 "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -201,9 +202,9 @@ func TestHasCurrentBuildAnnotation(t *testing.T) {
 			mosc := &mcfgv1.MachineOSConfig{
 				ObjectMeta: metav1.ObjectMeta{Annotations: tt.annotations},
 			}
-			got := hasCurrentBuildAnnotation(mosc)
+			got := utils.HasCurrentBuildAnnotation(mosc)
 			if got != tt.want {
-				t.Errorf("hasCurrentBuildAnnotation() = %v, want %v", got, tt.want)
+				t.Errorf("utils.HasCurrentBuildAnnotation() = %v, want %v", got, tt.want)
 			}
 		})
 	}

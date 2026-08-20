@@ -88,7 +88,7 @@ func (r *MOSCReconciler) ReconcileMOSC(ctx context.Context, key string) error {
 	}
 
 	// Handle rebuild annotation.
-	if hasRebuildAnnotation(mosc) {
+	if utils.HasRebuildAnnotation(mosc) {
 		r.events.RecordRebuildRequested(mosc, "rebuild annotation applied")
 		return r.handleRebuild(ctx, mosc)
 	}
@@ -291,14 +291,6 @@ func (r *MOSCReconciler) cleanupBuildResources(ctx context.Context, moscName str
 }
 
 // --- helpers ---
-
-func hasRebuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
-	if mosc.Annotations == nil {
-		return false
-	}
-	_, ok := mosc.Annotations[constants.RebuildMachineOSConfigAnnotationKey]
-	return ok
-}
 
 func isMOSBCurrentForMOSC(mosc *mcfgv1.MachineOSConfig, mosb *mcfgv1.MachineOSBuild) bool {
 	if mosc.Annotations == nil {

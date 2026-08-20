@@ -11,6 +11,7 @@ import (
 	fakemcfgclient "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -240,8 +241,8 @@ func TestHasRebuildAnnotation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mosc := &mcfgv1.MachineOSConfig{ObjectMeta: metav1.ObjectMeta{Annotations: tt.annotations}}
-			if got := hasRebuildAnnotation(mosc); got != tt.want {
-				t.Errorf("hasRebuildAnnotation() = %v, want %v", got, tt.want)
+			if got := utils.HasRebuildAnnotation(mosc); got != tt.want {
+				t.Errorf("utils.HasRebuildAnnotation() = %v, want %v", got, tt.want)
 			}
 		})
 	}
