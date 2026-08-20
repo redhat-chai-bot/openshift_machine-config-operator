@@ -184,7 +184,7 @@ func (o *optsGetter) getOpts(ctx context.Context, mosb *mcfgv1.MachineOSBuild, m
 
 	baseImagePullSecret, err := o.getValidatedSecret(ctx, baseImagePullSecretName)
 	if err != nil {
-		return nil, fmt.Errorf("could not get base image pull secret %s: %w", mosc.Spec.BaseImagePullSecret.Name, err)
+		return nil, fmt.Errorf("could not get base image pull secret %s: %w", baseImagePullSecretName, err)
 	}
 
 	finalImagePushSecret, err := o.getValidatedSecret(ctx, mosc.Spec.RenderedImagePushSecret.Name)

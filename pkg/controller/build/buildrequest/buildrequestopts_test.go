@@ -122,6 +122,30 @@ func TestBuildRequestOpts(t *testing.T) {
 		},
 	}
 
+	// Verify that when BaseImagePullSecret is nil and the fallback global
+	// pull secret is also missing, the error message uses the extracted
+	// variable name instead of dereferencing the nil pointer.
+	t.Run("nil BaseImagePullSecret does not panic on error path", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+
+		kubeclient, mcfgclient, lobj, _ := fixtures.GetClientsForTest(t)
+
+		// Ensure BaseImagePullSecret is nil on the MOSC.
+		lobj.MachineOSConfig.Spec.BaseImagePullSecret = nil
+
+		// Remove the fallback global pull secret so getValidatedSecret fails.
+		_ = kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Delete(ctx, ctrlcommon.GlobalPullSecretCopyName, metav1.DeleteOptions{})
+
+		// This must not panic; it should return an error referencing
+		// the fallback secret name.
+		_, err := newBuildRequestOptsFromAPI(ctx, kubeclient, mcfgclient, lobj.MachineOSBuild, lobj.MachineOSConfig)
+		assert.Error(t, err, "expected error when pull secret is missing")
+		assert.Contains(t, err.Error(), ctrlcommon.GlobalPullSecretCopyName)
+	})
+
 	for _, testCase := range testCases {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
