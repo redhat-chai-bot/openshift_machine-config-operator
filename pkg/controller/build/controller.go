@@ -22,11 +22,10 @@ const (
 	jobQueueName  = "job"
 )
 
-// Controller is the new key-based, multi-queue controller shell for
-// On-Cluster Layering. It runs alongside the existing OSBuildController until
-// the WS6 cutover, when it will replace it.
+// Controller is the key-based, multi-queue controller shell for
+// On-Cluster Layering builds.
 //
-// Differences from the old controller:
+// Design:
 //   - Four name-keyed workqueues (one per resource type) instead of one closure queue.
 //   - Informer handlers enqueue string keys via cache.MetaNamespaceKeyFunc.
 //   - MCP DeleteFunc is wired (the old controller was missing it).
