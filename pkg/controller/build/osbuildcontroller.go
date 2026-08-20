@@ -6,10 +6,8 @@ import (
 
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 
-	imagev1clientset "github.com/openshift/client-go/image/clientset/versioned"
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	"github.com/openshift/client-go/machineconfiguration/clientset/versioned/scheme"
-	routeclientset "github.com/openshift/client-go/route/clientset/versioned"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/reconcile"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
@@ -75,8 +73,6 @@ func NewOSBuildControllerFromControllerContextWithConfig(ctrlCtx *ctrlcommon.Con
 		cfg,
 		ctrlCtx.ClientBuilder.MachineConfigClientOrDie("machine-os-builder"),
 		ctrlCtx.ClientBuilder.KubeClientOrDie("machine-os-builder"),
-		ctrlCtx.ClientBuilder.ImageClientOrDie("machine-os-builder"),
-		ctrlCtx.ClientBuilder.RouteClientOrDie("machine-os-builder"),
 		imagepruner.NewImagePruner(),
 	)
 }
@@ -85,8 +81,6 @@ func newOSBuildController(
 	ctrlConfig Config,
 	mcfgclient mcfgclientset.Interface,
 	kubeclient clientset.Interface,
-	_ imagev1clientset.Interface, // reserved for future image API usage
-	_ routeclientset.Interface, // reserved for future route API usage
 	pruner imagepruner.ImagePruner,
 ) *OSBuildController {
 	eventBroadcaster := record.NewBroadcaster()
