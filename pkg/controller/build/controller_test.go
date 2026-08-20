@@ -19,8 +19,10 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	clocktesting "k8s.io/utils/clock/testing"
 )
 
@@ -181,11 +183,13 @@ func TestEnqueueJob(t *testing.T) {
 	}
 }
 
-// TestHandleDeleteWithTombstone verifies tombstone handling in delete handlers.
+// TestHandleDeleteWithTombstone verifies tombstone handling in the MOSC delete
+// handler. DeletionHandlingMetaNamespaceKeyFunc extracts the Key from the
+// DeletedFinalStateUnknown wrapper (which the cache layer populated), so the
+// enqueued key is the tombstone's Key field.
 func TestHandleDeleteWithTombstone(t *testing.T) {
 	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
-	// Simulate a tombstone wrapping a MOSC.
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "deleted-mosc"},
 	}
@@ -232,6 +236,62 @@ func TestHandleDeleteMCPWithTombstone(t *testing.T) {
 	}
 }
 
+// TestHandleDeleteMOSBWithTombstone verifies the MOSB delete handler processes
+// tombstones correctly, extracting the key from the DeletedFinalStateUnknown.
+func TestHandleDeleteMOSBWithTombstone(t *testing.T) {
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: "deleted-mosb"},
+	}
+	tombstone := cache.DeletedFinalStateUnknown{
+		Key: "deleted-mosb",
+		Obj: mosb,
+	}
+
+	bc.handleDeleteMOSB(tombstone)
+
+	key, quit := bc.mosbQueue.Get()
+	if quit {
+		t.Fatal("queue shut down unexpectedly")
+	}
+	defer bc.mosbQueue.Done(key)
+
+	if key != "deleted-mosb" {
+		t.Errorf("expected key %q from tombstone, got %q", "deleted-mosb", key)
+	}
+}
+
+// TestHandleDeleteJobWithTombstone verifies the Job delete handler processes
+// tombstones correctly, extracting the namespace/name key.
+func TestHandleDeleteJobWithTombstone(t *testing.T) {
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "deleted-job",
+			Namespace: "openshift-machine-config-operator",
+		},
+	}
+	tombstone := cache.DeletedFinalStateUnknown{
+		Key: "openshift-machine-config-operator/deleted-job",
+		Obj: job,
+	}
+
+	bc.handleDeleteJob(tombstone)
+
+	key, quit := bc.jobQueue.Get()
+	if quit {
+		t.Fatal("queue shut down unexpectedly")
+	}
+	defer bc.jobQueue.Done(key)
+
+	expected := "openshift-machine-config-operator/deleted-job"
+	if key != expected {
+		t.Errorf("expected key %q from tombstone, got %q", expected, key)
+	}
+}
+
 // TestProcessQueueCallsReconciler verifies the queue→reconciler dispatch path.
 func TestProcessQueueCallsReconciler(t *testing.T) {
 	r := newFakeReconciler()
@@ -248,6 +308,8 @@ func TestProcessQueueCallsReconciler(t *testing.T) {
 }
 
 // TestProcessQueueRetries verifies retry and drop behavior.
+// Uses a zero-delay rate limiter so retries are deterministic and
+// do not depend on wall-clock timing.
 func TestProcessQueueRetries(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.MaxRetries = 2
@@ -255,6 +317,13 @@ func TestProcessQueueRetries(t *testing.T) {
 	callCount := 0
 	failingReconciler := newFakeReconciler()
 	bc := NewController(failingReconciler, &informers{}, &listers{}, cfg)
+
+	// Replace the default moscQueue with one using a zero-delay rate limiter
+	// so retried items are immediately available for re-processing.
+	bc.moscQueue.ShutDown()
+	rl := workqueue.NewTypedItemExponentialFailureRateLimiter[string](0, 0)
+	bc.moscQueue = workqueue.NewTypedRateLimitingQueueWithConfig[string](rl,
+		workqueue.TypedRateLimitingQueueConfig[string]{Name: "test-zero-delay"})
 
 	// Create a handler that always fails.
 	handler := func(_ context.Context, key string) error {
@@ -275,15 +344,40 @@ func TestProcessQueueRetries(t *testing.T) {
 	}
 }
 
-// TestShutdownChan verifies the shutdown channel closes after shutdown.
+// TestShutdownChan verifies the shutdown channel is not closed initially and
+// IS closed after shutdownController completes. We call shutdownController
+// directly rather than going through Run to avoid requiring real informers
+// and listers.
 func TestShutdownChan(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	cfg := defaultConfig()
+	cfg.MaxShutdownDelay = 100 * time.Millisecond
+	cfg.ShutdownPollInterval = 10 * time.Millisecond
+
+	// Provide real (empty) fake clients so the shutdown delay handler's
+	// listers can list objects without panicking.
+	mcfgclient := fakeclientmachineconfiguration.NewSimpleClientset()
+	kubeclient := k8sfake.NewSimpleClientset()
+	inf := newInformers(mcfgclient, kubeclient)
+
+	bc := NewController(newFakeReconciler(), inf, inf.listers(), cfg)
 
 	// ShutdownChan should not be closed initially.
 	select {
 	case <-bc.ShutdownChan():
 		t.Fatal("shutdown channel should not be closed yet")
 	default:
+	}
+
+	// Call shutdownController directly. This shuts down all queues and
+	// closes the shutdown channel.
+	bc.shutdownController()
+
+	// ShutdownChan should now be closed.
+	select {
+	case <-bc.ShutdownChan():
+		// expected
+	default:
+		t.Error("shutdown channel should be closed after shutdownController")
 	}
 }
 
@@ -401,21 +495,22 @@ func TestOSBuildController_EndToEnd_WorkqueueDispatch(t *testing.T) {
 	}
 
 	// Poll for a MOSB to be created (the reconciler should create one).
-	var mosbFound bool
-	for i := 0; i < 50; i++ {
-		time.Sleep(100 * time.Millisecond)
-		mosbList, err := mcfgclient.MachineconfigurationV1().MachineOSBuilds().List(ctx, metav1.ListOptions{})
-		if err != nil {
-			continue
+	pollCtx, pollCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer pollCancel()
+
+	err = wait.PollUntilContextTimeout(pollCtx, 10*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+		mosbList, listErr := mcfgclient.MachineconfigurationV1().MachineOSBuilds().List(ctx, metav1.ListOptions{})
+		if listErr != nil {
+			return false, nil
 		}
 		if len(mosbList.Items) > 0 {
-			mosbFound = true
 			t.Logf("MOSB created via workqueue dispatch: %s", mosbList.Items[0].Name)
-			break
+			return true, nil
 		}
-	}
-	if !mosbFound {
-		t.Error("expected MOSB to be created via workqueue dispatch, but none found after 5s")
+		return false, nil
+	})
+	if err != nil {
+		t.Errorf("expected MOSB to be created via workqueue dispatch: %v", err)
 	}
 
 	// Shutdown.
