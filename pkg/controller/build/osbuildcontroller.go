@@ -84,6 +84,21 @@ func newOSBuildController(
 	kubeclient clientset.Interface,
 	pruner imagepruner.ImagePruner,
 ) *OSBuildController {
+	return newOSBuildControllerWithServices(ctrlConfig, mcfgclient, kubeclient, pruner, nil, nil)
+}
+
+// newOSBuildControllerWithServices constructs the controller with optional
+// service overrides.  When reuseChecker or seeder is nil the production
+// implementation is used.  This keeps newOSBuildController unchanged
+// while allowing tests to inject fakes.
+func newOSBuildControllerWithServices(
+	ctrlConfig Config,
+	mcfgclient mcfgclientset.Interface,
+	kubeclient clientset.Interface,
+	pruner imagepruner.ImagePruner,
+	reuseChecker services.ImageReuseChecker,
+	seeder services.Seeder,
+) *OSBuildController {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(klog.Infof)
 	eventBroadcaster.StartRecordingToSink(&coreclientsetv1.EventSinkImpl{Interface: kubeclient.CoreV1().Events("")})
@@ -106,10 +121,14 @@ func newOSBuildController(
 		NodeLister:              l.nodeLister,
 	}
 
-	// Construct services.
+	// Construct services, using injected overrides when present.
 	degraded := services.NewDegradedHandler(mcfgclient, l.machineOSBuildLister)
-	reuseChecker := services.NewImageReuseChecker(pruner, kubeclient, l.controllerConfigLister)
-	seeder := services.NewSeeder(mcfgclient, kubeclient, l.machineConfigPoolLister, l.machineConfigLister)
+	if reuseChecker == nil {
+		reuseChecker = services.NewImageReuseChecker(pruner, kubeclient, l.controllerConfigLister)
+	}
+	if seeder == nil {
+		seeder = services.NewSeeder(mcfgclient, kubeclient, l.machineConfigPoolLister, l.machineConfigLister)
+	}
 
 	// Build request listers for resolving build inputs from the informer
 	// cache instead of making direct API server calls.
