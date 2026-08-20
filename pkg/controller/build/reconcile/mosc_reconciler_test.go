@@ -174,7 +174,7 @@ func TestMOSCReconciler_RebuildAnnotation(t *testing.T) {
 			},
 		},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/ocp:latest",
 		},
 	}
@@ -192,7 +192,7 @@ func TestMOSCReconciler_RebuildAnnotation(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-1",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -284,6 +284,56 @@ func TestUpdateMOSCStatus(t *testing.T) {
 	}
 }
 
+// TestUpdateMOSCStatus_NoResourceVersionConflict verifies that after
+// Update() sets the annotation, the subsequent UpdateStatus() uses the
+// updated object (with new resourceVersion) so both writes succeed
+// without a conflict.
+func TestUpdateMOSCStatus_NoResourceVersionConflict(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "mosc-rv",
+			ResourceVersion: "100",
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosb-rv"},
+		Status: mcfgv1.MachineOSBuildStatus{
+			DigestedImagePushSpec: "image@sha256:deadbeef",
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(mosc)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.updateMOSCStatus(context.Background(), mosc, mosb)
+	if err != nil {
+		t.Fatalf("updateMOSCStatus error: %v", err)
+	}
+
+	// Verify both the annotation and the status were set.
+	updated, err := client.MachineconfigurationV1().MachineOSConfigs().Get(context.Background(), "mosc-rv", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get MOSC: %v", err)
+	}
+	if updated.Annotations[constants.CurrentMachineOSBuildAnnotationKey] != "mosb-rv" {
+		t.Errorf("expected current build annotation %q, got %q", "mosb-rv", updated.Annotations[constants.CurrentMachineOSBuildAnnotationKey])
+	}
+	if updated.Status.CurrentImagePullSpec != "image@sha256:deadbeef" {
+		t.Errorf("expected status pullspec %q, got %q", "image@sha256:deadbeef", updated.Status.CurrentImagePullSpec)
+	}
+	if updated.Status.MachineOSBuild == nil || updated.Status.MachineOSBuild.Name != "mosb-rv" {
+		t.Errorf("expected status MachineOSBuild.Name %q, got %+v", "mosb-rv", updated.Status.MachineOSBuild)
+	}
+}
+
 func TestEnsureBuildExists_AlreadyCurrent(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -349,7 +399,7 @@ func TestEnsureBuildExists_CreateNew(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -357,7 +407,7 @@ func TestEnsureBuildExists_CreateNew(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -393,18 +443,17 @@ func TestEnsureBuildExists_CreateNew(t *testing.T) {
 	}
 }
 
-
 func TestHandleRebuild(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "mosc-1",
 			Annotations: map[string]string{
-				constants.RebuildMachineOSConfigAnnotationKey:    "true",
-				constants.CurrentMachineOSBuildAnnotationKey: "old-build",
+				constants.RebuildMachineOSConfigAnnotationKey: "true",
+				constants.CurrentMachineOSBuildAnnotationKey:  "old-build",
 			},
 		},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -412,7 +461,7 @@ func TestHandleRebuild(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -458,7 +507,7 @@ func TestEnsureBuildExists_ReusePath(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -466,7 +515,7 @@ func TestEnsureBuildExists_ReusePath(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -521,7 +570,7 @@ func TestEnsureBuildExists_ReuseNeedsRebuild(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -529,7 +578,7 @@ func TestEnsureBuildExists_ReuseNeedsRebuild(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -707,7 +756,7 @@ func TestEnsureBuildExists_ReuseEvaluateError(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -715,7 +764,7 @@ func TestEnsureBuildExists_ReuseEvaluateError(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -779,7 +828,7 @@ func TestCreateMachineOSBuild_AlreadyExists(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -787,7 +836,7 @@ func TestCreateMachineOSBuild_AlreadyExists(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -831,7 +880,7 @@ func TestHandleRebuild_DeleteError(t *testing.T) {
 			},
 		},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -839,7 +888,7 @@ func TestHandleRebuild_DeleteError(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},

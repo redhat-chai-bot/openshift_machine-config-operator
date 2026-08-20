@@ -233,18 +233,21 @@ func (r *MOSCReconciler) updateMOSCStatus(ctx context.Context, mosc *mcfgv1.Mach
 	mosc = fresh.DeepCopy()
 
 	metav1.SetMetaDataAnnotation(&mosc.ObjectMeta, constants.CurrentMachineOSBuildAnnotationKey, mosb.Name)
-	if _, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().Update(ctx, mosc, metav1.UpdateOptions{}); err != nil {
+	updated, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().Update(ctx, mosc, metav1.UpdateOptions{})
+	if err != nil {
 		return fmt.Errorf("could not update MOSC %q annotations: %w", mosc.Name, err)
 	}
 
 	if mosb.Status.DigestedImagePushSpec != "" {
-		mosc.Status.CurrentImagePullSpec = mosb.Status.DigestedImagePushSpec
-		mosc.Status.MachineOSBuild = &mcfgv1.ObjectReference{
+		// Use the object returned by Update() so that we have the
+		// current resourceVersion for the subsequent status write.
+		updated.Status.CurrentImagePullSpec = mosb.Status.DigestedImagePushSpec
+		updated.Status.MachineOSBuild = &mcfgv1.ObjectReference{
 			Name:     mosb.Name,
 			Group:    mcfgv1.SchemeGroupVersion.Group,
 			Resource: "machineosbuilds",
 		}
-		if _, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().UpdateStatus(ctx, mosc, metav1.UpdateOptions{}); err != nil {
+		if _, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().UpdateStatus(ctx, updated, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("could not update MOSC %q status: %w", mosc.Name, err)
 		}
 	}
