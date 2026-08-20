@@ -165,6 +165,14 @@ func (r *JobReconciler) mapJobStatusToBuildStatus(ctx context.Context, mosb *mcf
 		return nil
 	}
 
+	// Final guard: use the state-machine check to prevent redundant or
+	// invalid MOSB status writes (e.g., duplicate job events, terminal→terminal).
+	updateNeeded, reason := IsMachineOSBuildStatusUpdateNeeded(mosb.Status, desiredStatus)
+	logStatusGuardResult(mosb.Name, updateNeeded, reason)
+	if !updateNeeded {
+		return nil
+	}
+
 	mosb.Status = desiredStatus
 	_, err = r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().UpdateStatus(ctx, mosb, metav1.UpdateOptions{})
 	if err != nil {

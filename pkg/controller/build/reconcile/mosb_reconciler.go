@@ -222,7 +222,17 @@ func (r *MOSBReconciler) startBuild(ctx context.Context, mosb *mcfgv1.MachineOSB
 
 // markBuildFailed sets the MachineOSBuild to failed status.
 func (r *MOSBReconciler) markBuildFailed(ctx context.Context, mosb *mcfgv1.MachineOSBuild) error {
-	mosb.Status.Conditions = apihelpers.MachineOSBuildFailedConditions()
+	desiredStatus := mosb.Status.DeepCopy()
+	desiredStatus.Conditions = apihelpers.MachineOSBuildFailedConditions()
+
+	// Guard against redundant status writes.
+	updateNeeded, reason := IsMachineOSBuildStatusUpdateNeeded(mosb.Status, *desiredStatus)
+	logStatusGuardResult(mosb.Name, updateNeeded, reason)
+	if !updateNeeded {
+		return nil
+	}
+
+	mosb.Status = *desiredStatus
 	_, err := r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().UpdateStatus(ctx, mosb, metav1.UpdateOptions{})
 	return err
 }
