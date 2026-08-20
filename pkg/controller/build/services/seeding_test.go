@@ -7,6 +7,7 @@ import (
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	fakeclientmachineconfigurationv2 "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	corev1 "k8s.io/api/core/v1"
@@ -280,6 +281,12 @@ func TestSeed_SecretNotFound(t *testing.T) {
 	}
 }
 
+// Compile-time interface satisfaction checks for fake listers.
+var (
+	_ mcfglistersv1.MachineConfigPoolLister = &fakeMCPListerSeed{}
+	_ mcfglistersv1.MachineConfigLister     = &fakeMCListerSeed{}
+)
+
 // fakeMCPListerSeed is a simple in-memory lister for MachineConfigPools.
 type fakeMCPListerSeed struct {
 	items []*mcfgv1.MachineConfigPool
@@ -331,8 +338,8 @@ func TestSeed_FullWorkflow(t *testing.T) {
 			},
 		},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
-			RenderedImagePushSpec: "registry.example.com/image",
+			MachineConfigPool:       mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec:   "registry.example.com/image",
 			RenderedImagePushSecret: mcfgv1.ImageSecretObjectReference{Name: "push-secret"},
 		},
 	}
@@ -340,7 +347,7 @@ func TestSeed_FullWorkflow(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-abc",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},

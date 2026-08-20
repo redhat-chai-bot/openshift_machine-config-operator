@@ -14,6 +14,7 @@ import (
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	fakeclientmachineconfiguration "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/reconcile"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -22,6 +23,9 @@ import (
 	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
 )
+
+// Compile-time interface satisfaction check.
+var _ reconcile.Reconciler = &fakeReconciler{}
 
 // fakeReconciler records calls made by the controller.
 type fakeReconciler struct {
@@ -387,7 +391,7 @@ func TestOSBuildController_EndToEnd_WorkqueueDispatch(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/ocp:latest",
 		},
 	}

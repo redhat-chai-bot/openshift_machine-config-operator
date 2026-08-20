@@ -14,11 +14,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	batchlisterv1 "k8s.io/client-go/listers/batch/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	batchlisterv1 "k8s.io/client-go/listers/batch/v1"
 )
 
 var _ batchlisterv1.JobLister = &fakeJobLister{}
+var _ batchlisterv1.JobNamespaceLister = &fakeJobNamespaceLister{}
 
 // fakeJobLister satisfies batchlisterv1.JobLister.
 type fakeJobLister struct {

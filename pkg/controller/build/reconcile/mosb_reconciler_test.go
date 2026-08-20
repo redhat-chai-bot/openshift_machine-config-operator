@@ -207,6 +207,12 @@ func TestIsPreBuiltMOSB(t *testing.T) {
 	}
 }
 
+// Compile-time interface satisfaction checks.
+var (
+	_ services.DegradedHandler = &fakeDegradedHandler{}
+	_ services.EventRecorder   = &countingEventRecorder{}
+)
+
 // fakeDegradedHandler satisfies services.DegradedHandler for tests.
 // Thread-safe via atomic for use in concurrent tests.
 type fakeDegradedHandler struct {

@@ -21,6 +21,12 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
+// Compile-time interface satisfaction checks.
+var (
+	_ services.Seeder            = &fakeSeeder{}
+	_ services.ImageReuseChecker = &fakeReuseChecker{}
+)
+
 // --- fake seeder ---
 
 type fakeSeeder struct {

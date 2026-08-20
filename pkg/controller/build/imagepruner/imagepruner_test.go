@@ -15,6 +15,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// Compile-time interface satisfaction check.
+var _ ImageInspector = &fakeImageInspector{}
+
 // fakeImageInspector is a fake image inspector implementation used for testing
 // the ImagePruner without requiring an actual image registry.
 type fakeImageInspector struct {

@@ -8,6 +8,7 @@ import (
 	"github.com/containers/image/v5/types"
 	"github.com/opencontainers/go-digest"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
 	corev1 "k8s.io/api/core/v1"
@@ -15,6 +16,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	fake "k8s.io/client-go/kubernetes/fake"
+)
+
+// Compile-time interface satisfaction checks.
+var (
+	_ imagepruner.ImagePruner              = &fakeImagePruner{}
+	_ imagepruner.ImagePruner              = &pullspecCapturingPruner{}
+	_ mcfglistersv1.ControllerConfigLister = &fakeCCLister{}
 )
 
 // fakeImagePruner implements imagepruner.ImagePruner for testing.
