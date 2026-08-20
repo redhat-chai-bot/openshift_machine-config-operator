@@ -28,7 +28,7 @@ type cleanerImpl struct {
 // which this tolerates.
 func newCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) Cleaner {
 	return &cleanerImpl{
-		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, mosb, mosc, nil),
+		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, mosb, mosc, nil, mcfgv1.JobBuilder),
 	}
 }
 
@@ -37,7 +37,7 @@ func newCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interfa
 // instead of a MachineOSConfig or MachineOSBuild.
 func newCleanerFromBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, builder buildrequest.Builder) Cleaner {
 	return &cleanerImpl{
-		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, nil, nil, builder),
+		baseImageBuilder: newBaseImageBuilder(kubeclient, mcfgclient, nil, nil, builder, mcfgv1.JobBuilder),
 	}
 }
 

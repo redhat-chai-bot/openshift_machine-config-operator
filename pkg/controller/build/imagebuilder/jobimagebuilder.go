@@ -26,7 +26,7 @@ type jobImageBuilder struct {
 }
 
 func newJobImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder) *jobImageBuilder {
-	b, c := newBaseImageBuilderWithCleaner(kubeclient, mcfgclient, mosb, mosc, builder)
+	b, c := newBaseImageBuilderWithCleaner(kubeclient, mcfgclient, mosb, mosc, builder, mcfgv1.JobBuilder)
 	return &jobImageBuilder{
 		baseImageBuilder: b,
 		cleaner:          c,
