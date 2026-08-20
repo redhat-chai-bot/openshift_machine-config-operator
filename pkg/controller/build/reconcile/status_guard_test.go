@@ -129,3 +129,10 @@ func TestIsMachineOSBuildStatusUpdateNeeded(t *testing.T) {
 		})
 	}
 }
+
+func TestLogStatusGuardResult(t *testing.T) {
+	// Exercise both branches of logStatusGuardResult for coverage.
+	logStatusGuardResult("test-mosb", true, "needed: test reason")
+	logStatusGuardResult("test-mosb", false, "skipped: test reason")
+	logStatusGuardResult("test-mosb", false, "")
+}

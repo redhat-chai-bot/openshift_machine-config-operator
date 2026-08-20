@@ -935,3 +935,57 @@ func TestBuildDesiredMOSB_MCNotFound(t *testing.T) {
 		t.Fatal("expected error for missing MC")
 	}
 }
+
+func TestCleanupBuildResources_NilKubeclient(t *testing.T) {
+	r := &MOSCReconciler{kubeclient: nil}
+	err := r.cleanupBuildResources(context.Background(), "deleted-mosc")
+	if err != nil {
+		t.Fatalf("expected nil for nil kubeclient, got: %v", err)
+	}
+}
+
+func TestCleanupBuildResources_FullCleanup(t *testing.T) {
+	moscName := "deleted-mosc"
+	lbls := map[string]string{constants.MachineOSConfigNameLabelKey: moscName}
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orphan-job", Namespace: "openshift-machine-config-operator", Labels: lbls,
+		},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orphan-cm", Namespace: "openshift-machine-config-operator", Labels: lbls,
+		},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orphan-secret", Namespace: "openshift-machine-config-operator", Labels: lbls,
+		},
+	}
+
+	kubeclient := k8sfake.NewSimpleClientset(job, cm, secret)
+	r := &MOSCReconciler{kubeclient: kubeclient}
+
+	err := r.cleanupBuildResources(context.Background(), moscName)
+	if err != nil {
+		t.Fatalf("cleanupBuildResources error: %v", err)
+	}
+
+	// Verify everything was deleted.
+	jobs, _ := kubeclient.BatchV1().Jobs("openshift-machine-config-operator").List(
+		context.Background(), metav1.ListOptions{})
+	if len(jobs.Items) != 0 {
+		t.Errorf("expected 0 jobs after cleanup, got %d", len(jobs.Items))
+	}
+	cms, _ := kubeclient.CoreV1().ConfigMaps("openshift-machine-config-operator").List(
+		context.Background(), metav1.ListOptions{})
+	if len(cms.Items) != 0 {
+		t.Errorf("expected 0 configmaps after cleanup, got %d", len(cms.Items))
+	}
+	secrets, _ := kubeclient.CoreV1().Secrets("openshift-machine-config-operator").List(
+		context.Background(), metav1.ListOptions{})
+	if len(secrets.Items) != 0 {
+		t.Errorf("expected 0 secrets after cleanup, got %d", len(secrets.Items))
+	}
+}

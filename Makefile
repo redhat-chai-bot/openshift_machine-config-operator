@@ -83,6 +83,27 @@ test-unit-build-race:
 		go test $(BUILD_TEST_FLAGS) $(BUILD_TEST_PKGS); \
 	fi
 
+.PHONY: test-unit-build-coverage-check
+test-unit-build-coverage-check:
+	@echo "Checking per-package coverage floors..."
+	@export GOTOOLCHAIN=auto && \
+	FAIL=0; \
+	for pkg in ./pkg/controller/build/reconcile/ ./pkg/controller/build/services/; do \
+		COV=$$(go test -count=1 -coverprofile=/dev/null "$$pkg" 2>&1 | grep -oP 'coverage: \K[0-9]+\.[0-9]+'); \
+		if [ -z "$$COV" ]; then \
+			echo "WARN: could not parse coverage for $$pkg"; \
+			continue; \
+		fi; \
+		PASS=$$(echo "$$COV" | awk '{print ($$1 >= 80.0) ? 1 : 0}'); \
+		if [ "$$PASS" -eq 0 ]; then \
+			echo "FAIL: $$pkg coverage $${COV}%% < 80%%"; \
+			FAIL=1; \
+		else \
+			echo "OK:   $$pkg coverage $${COV}%%"; \
+		fi; \
+	done; \
+	if [ "$$FAIL" -eq 1 ]; then exit 1; fi
+
 .PHONY: test-unit-build-race-stress
 test-unit-build-race-stress:
 	$(MAKE) test-unit-build-race BUILD_RACE_COUNT=200

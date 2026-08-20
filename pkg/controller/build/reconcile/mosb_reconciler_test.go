@@ -762,3 +762,37 @@ func TestMOSBReconciler_InitialState_NoMOSC(t *testing.T) {
 		t.Fatalf("unexpected error for orphan MOSB: %v", err)
 	}
 }
+
+func TestUpdateMOSCImagePullSpec_EmptyDigest(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mosc"},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mosb"},
+		Status:     mcfgv1.MachineOSBuildStatus{DigestedImagePushSpec: ""},
+	}
+
+	r := &MOSBReconciler{}
+	err := r.updateMOSCImagePullSpec(context.Background(), mosc, mosb)
+	if err != nil {
+		t.Fatalf("expected nil for empty digest, got: %v", err)
+	}
+}
+
+func TestUpdateMOSCImagePullSpec_ListerError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "missing-mosc"},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mosb"},
+		Status:     mcfgv1.MachineOSBuildStatus{DigestedImagePushSpec: "image@sha256:abc"},
+	}
+
+	r := &MOSBReconciler{
+		moscLister: &fakeMOSCListerForSelector{items: nil},
+	}
+	err := r.updateMOSCImagePullSpec(context.Background(), mosc, mosb)
+	if err == nil {
+		t.Fatal("expected error for missing MOSC in lister")
+	}
+}
