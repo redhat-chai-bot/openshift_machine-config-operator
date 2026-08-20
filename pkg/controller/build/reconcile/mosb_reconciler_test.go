@@ -557,7 +557,7 @@ func TestHandleTerminalState_MOSCError(t *testing.T) {
 func TestHandleTerminalState_MCPError(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "test-mosc",
+			Name:   "test-mosc",
 			Labels: map[string]string{constants.TargetMachineConfigPoolLabelKey: "worker"},
 		},
 		Spec: mcfgv1.MachineOSConfigSpec{
@@ -671,6 +671,62 @@ func TestMarkBuildFailed(t *testing.T) {
 	}
 	if !foundFailed {
 		t.Error("expected MachineOSBuildFailed=True condition")
+	}
+}
+
+func TestMOSBReconciler_TerminalInterrupted(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-mosc",
+			Labels: map[string]string{constants.TargetMachineConfigPoolLabelKey: "worker"},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+	}
+
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "interrupted-mosb",
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "test-mosc",
+			},
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuildInterrupted), Status: metav1.ConditionTrue},
+			},
+		},
+	}
+
+	dh := &fakeDegradedHandler{}
+	r := &MOSBReconciler{
+		kubeclient: k8sfake.NewSimpleClientset(),
+		mcfgclient: newFakeReconcileMCFGClient(mosb, mosc),
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+		degraded:   dh,
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+			MachineOSConfigLister:   &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+			MachineConfigPoolLister: &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		},
+	}
+
+	err := r.ReconcileMOSB(context.Background(), "interrupted-mosb")
+	if err != nil {
+		t.Fatalf("unexpected error for interrupted MOSB: %v", err)
+	}
+	if !dh.wasUpdateCalled() {
+		t.Error("expected degraded handler UpdateImageBuildDegraded to be called for interrupted build")
 	}
 }
 

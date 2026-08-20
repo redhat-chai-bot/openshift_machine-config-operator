@@ -145,6 +145,16 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 			klog.Warningf("MOSBReconciler: could not clean ephemeral objects for %q: %v", mosb.Name, err)
 		}
 		return r.degraded.UpdateImageBuildDegraded(ctx, mcp, mosc)
+
+	case state.IsBuildInterrupted():
+		r.events.RecordBuildInterrupted(mosb, "build was interrupted, cleaning up for retry")
+		// Clean up ephemeral build objects so the next reconcile
+		// can start fresh.
+		cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)
+		if err := cleaner.Clean(ctx); err != nil {
+			klog.Warningf("MOSBReconciler: could not clean ephemeral objects for interrupted build %q: %v", mosb.Name, err)
+		}
+		return r.degraded.UpdateImageBuildDegraded(ctx, mcp, mosc)
 	}
 
 	return nil
