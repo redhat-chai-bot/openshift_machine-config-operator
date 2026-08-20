@@ -70,7 +70,8 @@ test-unit: install-go-junit-report
 test-unit-build-race:
 	@echo "Running build controller tests with race detector and repetition..."
 	$(eval BUILD_COVER_PROFILE := build-controller-coverage.out)
-	$(eval BUILD_TEST_FLAGS := -v -race -count=5 -tags=$(GOTAGS))
+	$(eval BUILD_RACE_COUNT ?= 5)
+	$(eval BUILD_TEST_FLAGS := -v -race -count=$(BUILD_RACE_COUNT) -tags=$(GOTAGS))
 	$(eval BUILD_TEST_PKGS := ./pkg/controller/build/...)
 	@if [ -n "$(ARTIFACT_DIR)" ]; then \
 		go test $(BUILD_TEST_FLAGS) -coverprofile=$(BUILD_COVER_PROFILE) $(BUILD_TEST_PKGS) && \
@@ -81,6 +82,10 @@ test-unit-build-race:
 	else \
 		go test $(BUILD_TEST_FLAGS) $(BUILD_TEST_PKGS); \
 	fi
+
+.PHONY: test-unit-build-race-stress
+test-unit-build-race-stress:
+	$(MAKE) test-unit-build-race BUILD_RACE_COUNT=200
 
 # Run the code generation tasks.
 # Example:
