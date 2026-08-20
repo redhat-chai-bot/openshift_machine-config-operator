@@ -8,8 +8,10 @@ import (
 	"time"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	fakeclientmachineconfiguration "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
 	clocktesting "k8s.io/utils/clock/testing"
 )
@@ -271,6 +273,29 @@ func TestShutdownChan(t *testing.T) {
 	case <-bc.ShutdownChan():
 		t.Fatal("shutdown channel should not be closed yet")
 	default:
+	}
+}
+
+// TestNewInformersHasSyncedIncludesMachineConfig verifies that the
+// machineConfigInformer's HasSynced callback is included in the hasSynced
+// slice. Without it, the controller may reconcile before the MC lister is
+// populated, causing spurious "not found" errors.
+func TestNewInformersHasSyncedIncludesMachineConfig(t *testing.T) {
+	// newInformers requires non-nil clients. We use fakes to construct the
+	// informers and inspect the resulting hasSynced slice length. The old code
+	// had 8 entries (missing machineConfigInformer); after the fix there should
+	// be 9.
+	mcfgclient := fakeclientmachineconfiguration.NewSimpleClientset()
+	kubeclient := k8sfake.NewSimpleClientset()
+
+	inf := newInformers(mcfgclient, kubeclient)
+
+	// We expect 9 hasSynced callbacks:
+	// controllerConfig, machineConfigPool, machineConfig, job,
+	// machineOSBuild, machineOSConfig, node, configmap, secret
+	expected := 9
+	if got := len(inf.hasSynced); got != expected {
+		t.Errorf("expected %d hasSynced callbacks, got %d — machineConfigInformer.HasSynced may be missing", expected, got)
 	}
 }
 

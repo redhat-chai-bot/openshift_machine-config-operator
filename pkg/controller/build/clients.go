@@ -125,6 +125,7 @@ func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Inter
 		hasSynced: []cache.InformerSynced{
 			controllerConfigInformer.Informer().HasSynced,
 			machineConfigPoolInformer.Informer().HasSynced,
+			machineConfigInformer.Informer().HasSynced,
 			jobInformer.Informer().HasSynced,
 			machineOSBuildInformer.Informer().HasSynced,
 			machineOSConfigInformer.Informer().HasSynced,
