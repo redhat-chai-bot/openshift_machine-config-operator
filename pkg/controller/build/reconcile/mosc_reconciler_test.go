@@ -3,6 +3,7 @@ package reconcile
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/containers/image/v5/types"
@@ -17,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // --- fake seeder ---
@@ -1036,5 +1038,59 @@ func TestCleanupBuildResources_FullCleanup(t *testing.T) {
 		context.Background(), metav1.ListOptions{})
 	if len(secrets.Items) != 0 {
 		t.Errorf("expected 0 secrets after cleanup, got %d", len(secrets.Items))
+	}
+}
+
+// TestCleanupBuildResources_AggregatesErrors verifies that when one resource
+// type fails to delete, the other types still get a deletion attempt and all
+// errors are collected via errors.Join instead of aborting on the first error.
+func TestCleanupBuildResources_AggregatesErrors(t *testing.T) {
+	moscName := "deleted-mosc"
+	lbls := map[string]string{constants.MachineOSConfigNameLabelKey: moscName}
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orphan-job", Namespace: ctrlcommon.MCONamespace, Labels: lbls,
+		},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orphan-cm", Namespace: ctrlcommon.MCONamespace, Labels: lbls,
+		},
+	}
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "orphan-secret", Namespace: ctrlcommon.MCONamespace, Labels: lbls,
+		},
+	}
+
+	kubeclient := k8sfake.NewSimpleClientset(job, cm, secret)
+
+	// Inject a reactor that makes Job deletes fail.
+	kubeclient.PrependReactor("delete", "jobs", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("injected job delete failure")
+	})
+
+	r := &MOSCReconciler{kubeclient: kubeclient}
+
+	err := r.cleanupBuildResources(context.Background(), moscName)
+	if err == nil {
+		t.Fatal("expected aggregated error from job delete failure")
+	}
+	if !strings.Contains(err.Error(), "injected job delete failure") {
+		t.Errorf("expected error to mention job failure, got: %v", err)
+	}
+
+	// Despite the job delete failing, ConfigMaps and Secrets should still
+	// have been deleted.
+	cms, _ := kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).List(
+		context.Background(), metav1.ListOptions{})
+	if len(cms.Items) != 0 {
+		t.Errorf("expected 0 configmaps after cleanup (errors should not abort), got %d", len(cms.Items))
+	}
+	secrets, _ := kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).List(
+		context.Background(), metav1.ListOptions{})
+	if len(secrets.Items) != 0 {
+		t.Errorf("expected 0 secrets after cleanup (errors should not abort), got %d", len(secrets.Items))
 	}
 }

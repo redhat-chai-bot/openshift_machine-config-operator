@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
@@ -268,44 +269,52 @@ func (r *MOSCReconciler) cleanupBuildResources(ctx context.Context, moscName str
 	})
 	listOpts := metav1.ListOptions{LabelSelector: sel.String()}
 
+	var errs []error
+
 	// Delete orphaned build Jobs.
 	propagation := metav1.DeletePropagationForeground
 	jobs, err := r.kubeclient.BatchV1().Jobs(ctrlcommon.MCONamespace).List(ctx, listOpts)
 	if err != nil {
-		return fmt.Errorf("could not list jobs for deleted MOSC %q: %w", moscName, err)
-	}
-	for i := range jobs.Items {
-		if err := r.kubeclient.BatchV1().Jobs(ctrlcommon.MCONamespace).Delete(ctx, jobs.Items[i].Name, metav1.DeleteOptions{PropagationPolicy: &propagation}); err != nil && !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("could not delete job %q for MOSC %q: %w", jobs.Items[i].Name, moscName, err)
+		errs = append(errs, fmt.Errorf("could not list jobs for deleted MOSC %q: %w", moscName, err))
+	} else {
+		for i := range jobs.Items {
+			if err := r.kubeclient.BatchV1().Jobs(ctrlcommon.MCONamespace).Delete(ctx, jobs.Items[i].Name, metav1.DeleteOptions{PropagationPolicy: &propagation}); err != nil && !k8serrors.IsNotFound(err) {
+				errs = append(errs, fmt.Errorf("could not delete job %q for MOSC %q: %w", jobs.Items[i].Name, moscName, err))
+			} else {
+				klog.Infof("MOSCReconciler: deleted orphaned job %q for deleted MOSC %q", jobs.Items[i].Name, moscName)
+			}
 		}
-		klog.Infof("MOSCReconciler: deleted orphaned job %q for deleted MOSC %q", jobs.Items[i].Name, moscName)
 	}
 
 	// Delete orphaned ephemeral ConfigMaps.
 	cms, err := r.kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).List(ctx, listOpts)
 	if err != nil {
-		return fmt.Errorf("could not list configmaps for deleted MOSC %q: %w", moscName, err)
-	}
-	for i := range cms.Items {
-		if err := r.kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).Delete(ctx, cms.Items[i].Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("could not delete configmap %q for MOSC %q: %w", cms.Items[i].Name, moscName, err)
+		errs = append(errs, fmt.Errorf("could not list configmaps for deleted MOSC %q: %w", moscName, err))
+	} else {
+		for i := range cms.Items {
+			if err := r.kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).Delete(ctx, cms.Items[i].Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+				errs = append(errs, fmt.Errorf("could not delete configmap %q for MOSC %q: %w", cms.Items[i].Name, moscName, err))
+			} else {
+				klog.Infof("MOSCReconciler: deleted orphaned configmap %q for deleted MOSC %q", cms.Items[i].Name, moscName)
+			}
 		}
-		klog.Infof("MOSCReconciler: deleted orphaned configmap %q for deleted MOSC %q", cms.Items[i].Name, moscName)
 	}
 
 	// Delete orphaned ephemeral Secrets.
 	secrets, err := r.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).List(ctx, listOpts)
 	if err != nil {
-		return fmt.Errorf("could not list secrets for deleted MOSC %q: %w", moscName, err)
-	}
-	for i := range secrets.Items {
-		if err := r.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Delete(ctx, secrets.Items[i].Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
-			return fmt.Errorf("could not delete secret %q for MOSC %q: %w", secrets.Items[i].Name, moscName, err)
+		errs = append(errs, fmt.Errorf("could not list secrets for deleted MOSC %q: %w", moscName, err))
+	} else {
+		for i := range secrets.Items {
+			if err := r.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Delete(ctx, secrets.Items[i].Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+				errs = append(errs, fmt.Errorf("could not delete secret %q for MOSC %q: %w", secrets.Items[i].Name, moscName, err))
+			} else {
+				klog.Infof("MOSCReconciler: deleted orphaned secret %q for deleted MOSC %q", secrets.Items[i].Name, moscName)
+			}
 		}
-		klog.Infof("MOSCReconciler: deleted orphaned secret %q for deleted MOSC %q", secrets.Items[i].Name, moscName)
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // --- helpers ---
