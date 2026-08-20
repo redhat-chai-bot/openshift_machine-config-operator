@@ -12,8 +12,8 @@ import (
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/apimachinery/pkg/labels"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 )
 
@@ -43,9 +43,9 @@ var _ ImageReuseChecker = &imageReuseChecker{}
 
 // imageReuseChecker is the production implementation of ImageReuseChecker.
 type imageReuseChecker struct {
-	imagePruner      imagepruner.ImagePruner
-	kubeclient       clientset.Interface
-	ccLister         mcfglistersv1.ControllerConfigLister
+	imagePruner imagepruner.ImagePruner
+	kubeclient  clientset.Interface
+	ccLister    mcfglistersv1.ControllerConfigLister
 }
 
 // NewImageReuseChecker constructs an ImageReuseChecker.
@@ -77,7 +77,10 @@ func (c *imageReuseChecker) EvaluateReuse(ctx context.Context, mosc *mcfgv1.Mach
 
 	// If the existing build succeeded and has a pullspec, verify the image still exists.
 	if existingState.IsBuildSuccess() && existingMosb.Status.DigestedImagePushSpec != "" {
-		image := string(existingMosb.Spec.RenderedImagePushSpec)
+		// Use the digest-pinned pullspec for inspection rather than the
+		// tag-based RenderedImagePushSpec. A tag may have been overwritten
+		// by a newer build, causing a false-positive reuse decision.
+		image := string(existingMosb.Status.DigestedImagePushSpec)
 		klog.Infof("ImageReuseChecker: existing MachineOSBuild %q found, checking image %q", existingMosb.Name, image)
 
 		inspect, err := c.InspectImage(ctx, image, existingMosb)

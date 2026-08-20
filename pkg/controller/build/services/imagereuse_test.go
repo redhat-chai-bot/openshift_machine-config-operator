@@ -9,6 +9,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -231,6 +232,98 @@ func TestImageReuseResult_ZeroValue(t *testing.T) {
 	}
 	if r.NeedsRebuild {
 		t.Error("zero-value NeedsRebuild should be false")
+	}
+}
+
+// TestEvaluateReuse_UsesDigestedPullSpec verifies that the reuse checker
+// inspects the digest-pinned DigestedImagePushSpec, not the tag-based
+// RenderedImagePushSpec. The tag may have been overwritten by a newer build.
+func TestEvaluateReuse_UsesDigestedPullSpec(t *testing.T) {
+	digestPullspec := "registry.example.com/image@sha256:specificdigest"
+	tagPullspec := "registry.example.com/image:latest"
+
+	// The fake pruner records which pullspec was inspected via
+	// the inspectResult being non-nil only when called.
+	inspectedPullspec := ""
+	pruner := &pullspecCapturingPruner{
+		inspectResult: &types.ImageInspectInfo{},
+		capture:       &inspectedPullspec,
+	}
+
+	checker := newTestCheckerWithPruner(pruner)
+
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-mosc"},
+	}
+
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-mosb",
+			Annotations: map[string]string{
+				constants.RenderedImagePushSecretAnnotationKey: "push-secret",
+			},
+		},
+		Spec: mcfgv1.MachineOSBuildSpec{
+			RenderedImagePushSpec: mcfgv1.ImageTagFormat(tagPullspec),
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			DigestedImagePushSpec: mcfgv1.ImageDigestFormat(digestPullspec),
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuildSucceeded), Status: metav1.ConditionTrue},
+			},
+		},
+	}
+
+	result, err := checker.EvaluateReuse(context.Background(), mosc, mosb)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.CanReuse {
+		t.Error("expected CanReuse=true")
+	}
+	if inspectedPullspec != digestPullspec {
+		t.Errorf("expected inspection of digest pullspec %q, but got %q", digestPullspec, inspectedPullspec)
+	}
+	if inspectedPullspec == tagPullspec {
+		t.Error("should NOT have inspected the tag-based pullspec")
+	}
+}
+
+// pullspecCapturingPruner records the pullspec passed to InspectImage.
+type pullspecCapturingPruner struct {
+	inspectResult *types.ImageInspectInfo
+	inspectErr    error
+	capture       *string
+}
+
+func (f *pullspecCapturingPruner) InspectImage(_ context.Context, pullspec string, _ *corev1.Secret, _ *mcfgv1.ControllerConfig) (*types.ImageInspectInfo, *digest.Digest, error) {
+	*f.capture = pullspec
+	return f.inspectResult, nil, f.inspectErr
+}
+
+func (f *pullspecCapturingPruner) DeleteImage(_ context.Context, _ string, _ *corev1.Secret, _ *mcfgv1.ControllerConfig) error {
+	return nil
+}
+
+// newTestCheckerWithPruner creates a checker with a custom pruner.
+func newTestCheckerWithPruner(pruner imagepruner.ImagePruner) *imageReuseChecker {
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "push-secret",
+			Namespace: "openshift-machine-config-operator",
+		},
+	}
+	cc := &mcfgv1.ControllerConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "machine-config-controller"},
+	}
+
+	kubeclient := fake.NewSimpleClientset([]runtime.Object{secret}...)
+	ccLister := &fakeCCLister{items: []*mcfgv1.ControllerConfig{cc}}
+
+	return &imageReuseChecker{
+		imagePruner: pruner,
+		kubeclient:  kubeclient,
+		ccLister:    ccLister,
 	}
 }
 
