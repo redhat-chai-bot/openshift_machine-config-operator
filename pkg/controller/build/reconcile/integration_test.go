@@ -197,7 +197,7 @@ func TestIntegration_MOSCCreateTriggersMOSBCreation(t *testing.T) {
 	mcLister := &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}}
 
 	moscReconciler := NewMOSCReconciler(
-		mcfgclient, moscLister, mosbLister, mcpLister, mcLister,
+		mcfgclient, nil, moscLister, mosbLister, mcpLister, mcLister,
 		events, services.NewNoopMetricsRecorder(),
 		&fakeSeeder{}, &fakeReuseChecker{},
 	)
@@ -346,7 +346,7 @@ func TestIntegration_CrossControllerChain_MOSCToMOSBToPool(t *testing.T) {
 	}
 
 	moscReconciler := NewMOSCReconciler(
-		mcfgclient, moscLister, mutableMOSB, mcpLister, mcLister,
+		mcfgclient, nil, moscLister, mutableMOSB, mcpLister, mcLister,
 		events, services.NewNoopMetricsRecorder(),
 		&fakeSeeder{}, &fakeReuseChecker{},
 	)
@@ -452,7 +452,7 @@ func TestIntegration_ConcurrencyStressor(t *testing.T) {
 	metrics := services.NewNoopMetricsRecorder()
 	dh := &fakeDegradedHandler{}
 
-	moscR := NewMOSCReconciler(mcfgclient, moscLister, mosbLister, mcpLister, mcLister,
+	moscR := NewMOSCReconciler(mcfgclient, kubeclient, moscLister, mosbLister, mcpLister, mcLister,
 		events, metrics, &fakeSeeder{}, &fakeReuseChecker{})
 	mosbR := NewMOSBReconciler(mcfgclient, kubeclient, mosbLister, moscLister, mcpLister, mcLister,
 		events, metrics, dh, utilListers)

@@ -11,10 +11,12 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
 // --- fake seeder ---
@@ -63,6 +65,44 @@ func TestMOSCReconciler_NotFound(t *testing.T) {
 	err := r.ReconcileMOSC(context.Background(), "nonexistent")
 	if err != nil {
 		t.Errorf("expected nil error for not-found MOSC, got: %v", err)
+	}
+}
+
+func TestMOSCReconciler_Deletion_CleansUpBuildResources(t *testing.T) {
+	moscName := "deleted-mosc"
+
+	// Create a fake kubeclient with an orphaned build Job labeled with
+	// the deleted MOSC name.
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "build-job-orphan",
+			Namespace: "openshift-machine-config-operator",
+			Labels: map[string]string{
+				constants.MachineOSConfigNameLabelKey: moscName,
+			},
+		},
+	}
+	kubeclient := k8sfake.NewSimpleClientset(job)
+
+	r := &MOSCReconciler{
+		moscLister: &fakeMOSCListerForSelector{items: nil}, // MOSC not found
+		kubeclient: kubeclient,
+		seeder:     &fakeSeeder{},
+	}
+
+	err := r.ReconcileMOSC(context.Background(), moscName)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the orphaned Job was deleted.
+	jobs, err := kubeclient.BatchV1().Jobs("openshift-machine-config-operator").List(
+		context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list jobs: %v", err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Errorf("expected 0 jobs after cleanup, got %d", len(jobs.Items))
 	}
 }
 

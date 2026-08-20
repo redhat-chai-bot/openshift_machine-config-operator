@@ -11,14 +11,18 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 )
 
 // MOSCReconciler handles level-based reconciliation of MachineOSConfig objects.
 type MOSCReconciler struct {
 	mcfgclient mcfgclientset.Interface
+	kubeclient clientset.Interface
 	moscLister mcfglistersv1.MachineOSConfigLister
 	mosbLister mcfglistersv1.MachineOSBuildLister
 	mcpLister  mcfglistersv1.MachineConfigPoolLister
@@ -33,6 +37,7 @@ type MOSCReconciler struct {
 // NewMOSCReconciler constructs a MOSCReconciler with injected dependencies.
 func NewMOSCReconciler(
 	mcfgclient mcfgclientset.Interface,
+	kubeclient clientset.Interface,
 	moscLister mcfglistersv1.MachineOSConfigLister,
 	mosbLister mcfglistersv1.MachineOSBuildLister,
 	mcpLister mcfglistersv1.MachineConfigPoolLister,
@@ -44,6 +49,7 @@ func NewMOSCReconciler(
 ) *MOSCReconciler {
 	return &MOSCReconciler{
 		mcfgclient: mcfgclient,
+		kubeclient: kubeclient,
 		moscLister: moscLister,
 		mosbLister: mosbLister,
 		mcpLister:  mcpLister,
@@ -60,8 +66,8 @@ func NewMOSCReconciler(
 func (r *MOSCReconciler) ReconcileMOSC(ctx context.Context, key string) error {
 	mosc, err := r.moscLister.Get(key)
 	if k8serrors.IsNotFound(err) {
-		klog.V(4).Infof("MOSCReconciler: MachineOSConfig %q deleted, nothing to do", key)
-		return nil
+		klog.V(4).Infof("MOSCReconciler: MachineOSConfig %q deleted, cleaning up build resources", key)
+		return r.cleanupBuildResources(ctx, key)
 	}
 	if err != nil {
 		return fmt.Errorf("could not get MachineOSConfig %q: %w", key, err)
@@ -241,6 +247,59 @@ func (r *MOSCReconciler) updateMOSCStatus(ctx context.Context, mosc *mcfgv1.Mach
 		if _, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().UpdateStatus(ctx, mosc, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("could not update MOSC %q status: %w", mosc.Name, err)
 		}
+	}
+
+	return nil
+}
+
+// cleanupBuildResources removes build Jobs and ephemeral objects (ConfigMaps,
+// Secrets) associated with a deleted MachineOSConfig. MOSBs are cleaned by
+// Kubernetes GC via ownerRefs, but Jobs are standalone and would be orphaned.
+func (r *MOSCReconciler) cleanupBuildResources(ctx context.Context, moscName string) error {
+	if r.kubeclient == nil {
+		return nil
+	}
+
+	sel := labels.SelectorFromSet(map[string]string{
+		constants.MachineOSConfigNameLabelKey: moscName,
+	})
+	listOpts := metav1.ListOptions{LabelSelector: sel.String()}
+
+	// Delete orphaned build Jobs.
+	propagation := metav1.DeletePropagationForeground
+	jobs, err := r.kubeclient.BatchV1().Jobs(ctrlcommon.MCONamespace).List(ctx, listOpts)
+	if err != nil {
+		return fmt.Errorf("could not list jobs for deleted MOSC %q: %w", moscName, err)
+	}
+	for i := range jobs.Items {
+		if err := r.kubeclient.BatchV1().Jobs(ctrlcommon.MCONamespace).Delete(ctx, jobs.Items[i].Name, metav1.DeleteOptions{PropagationPolicy: &propagation}); err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("could not delete job %q for MOSC %q: %w", jobs.Items[i].Name, moscName, err)
+		}
+		klog.Infof("MOSCReconciler: deleted orphaned job %q for deleted MOSC %q", jobs.Items[i].Name, moscName)
+	}
+
+	// Delete orphaned ephemeral ConfigMaps.
+	cms, err := r.kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).List(ctx, listOpts)
+	if err != nil {
+		return fmt.Errorf("could not list configmaps for deleted MOSC %q: %w", moscName, err)
+	}
+	for i := range cms.Items {
+		if err := r.kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).Delete(ctx, cms.Items[i].Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("could not delete configmap %q for MOSC %q: %w", cms.Items[i].Name, moscName, err)
+		}
+		klog.Infof("MOSCReconciler: deleted orphaned configmap %q for deleted MOSC %q", cms.Items[i].Name, moscName)
+	}
+
+	// Delete orphaned ephemeral Secrets.
+	secrets, err := r.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).List(ctx, listOpts)
+	if err != nil {
+		return fmt.Errorf("could not list secrets for deleted MOSC %q: %w", moscName, err)
+	}
+	for i := range secrets.Items {
+		if err := r.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Delete(ctx, secrets.Items[i].Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("could not delete secret %q for MOSC %q: %w", secrets.Items[i].Name, moscName, err)
+		}
+		klog.Infof("MOSCReconciler: deleted orphaned secret %q for deleted MOSC %q", secrets.Items[i].Name, moscName)
 	}
 
 	return nil

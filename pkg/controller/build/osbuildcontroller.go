@@ -118,7 +118,7 @@ func newOSBuildController(
 
 	// Construct the 4 reconcilers.
 	moscR := reconcile.NewMOSCReconciler(
-		mcfgclient, l.machineOSConfigLister, l.machineOSBuildLister,
+		mcfgclient, kubeclient, l.machineOSConfigLister, l.machineOSBuildLister,
 		l.machineConfigPoolLister, l.machineConfigLister,
 		events, metrics, seeder, reuseChecker,
 	)
