@@ -75,9 +75,13 @@ func (b *baseImageBuilder) getMachineOSBuildStatus(ctx context.Context, obj kube
 
 	out := mcfgv1.MachineOSBuildStatus{}
 
+	isTerminal := buildStatus == mcfgv1.MachineOSBuildSucceeded ||
+		buildStatus == mcfgv1.MachineOSBuildFailed ||
+		buildStatus == mcfgv1.MachineOSBuildInterrupted
+
 	out.BuildStart = &now
 
-	if buildStatus == mcfgv1.MachineOSBuildSucceeded || buildStatus == mcfgv1.MachineOSBuildFailed || buildStatus == mcfgv1.MachineOSBuildInterrupted {
+	if isTerminal {
 		out.BuildEnd = &now
 	}
 
@@ -86,7 +90,10 @@ func (b *baseImageBuilder) getMachineOSBuildStatus(ctx context.Context, obj kube
 	// In this case, we should get the creation timestamp from the builder
 	// object and use that as the start time instead of now since the buildEnd
 	// must be after the buildStart time.
-	if out.BuildStart == &now && out.BuildEnd == &now {
+	//
+	// Previously this used a pointer equality check (out.BuildStart == &now)
+	// which is fragile. Use the explicit terminal-state flag instead.
+	if isTerminal {
 		jobCreationTimestamp := obj.GetCreationTimestamp()
 		out.BuildStart = &jobCreationTimestamp
 	}
