@@ -17,6 +17,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Compile-time interface satisfaction check.
+var _ Cleaner = &cleanerImpl{}
+
 // Holds an implementation of the Cleaner interface that solely cleans up the
 // ephemeral build objects that were created.
 type cleanerImpl struct {

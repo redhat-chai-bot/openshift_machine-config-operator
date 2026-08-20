@@ -19,6 +19,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Compile-time interface satisfaction check.
+var _ ImageBuilder = &jobImageBuilder{}
+
 // Implements ImageBuilder assuming that the underlying Builder is a Job.
 type jobImageBuilder struct {
 	*baseImageBuilder

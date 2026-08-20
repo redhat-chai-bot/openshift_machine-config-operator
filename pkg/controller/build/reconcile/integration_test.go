@@ -9,10 +9,11 @@ import (
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	fakemcfgclient "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,7 +41,7 @@ func testMC() *mcfgv1.MachineConfig {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: testRenderedConfig,
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           testVersion,
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          testVersion,
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: testVersion,
 			},
 		},
@@ -67,11 +68,17 @@ func testMOSC() *mcfgv1.MachineOSConfig {
 	return &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: testMOSCName},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: testPool},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: testPool},
 			RenderedImagePushSpec: testRenderedPush,
 		},
 	}
 }
+
+// Compile-time interface satisfaction checks for integration test fakes.
+var (
+	_ mcfglistersv1.MachineOSBuildLister = &mutableMOSBLister{}
+	_ batchlisterv1.JobLister            = &integrationJobLister{}
+)
 
 // ---------------------------------------------------------------------------
 // mutableLister — a thread-safe lister whose items can be updated during a test

@@ -15,6 +15,9 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// Compile-time interface satisfaction check.
+var _ Preparer = &preparerImpl{}
+
 // The Preparer object creates all of the ephemeral build objects required for
 // a build to take place. This includes the ConfigMaps which contains the
 // rendered MachineConfig and the Containerfile, as well as cloned copies of
