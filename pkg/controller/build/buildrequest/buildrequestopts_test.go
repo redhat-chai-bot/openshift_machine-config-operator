@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/fixtures"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"

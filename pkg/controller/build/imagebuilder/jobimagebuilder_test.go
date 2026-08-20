@@ -14,7 +14,7 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/apihelpers"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/fixtures"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 )

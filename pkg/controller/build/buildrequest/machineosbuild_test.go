@@ -8,7 +8,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/fixtures"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	testhelpers "github.com/openshift/machine-config-operator/test/helpers"
 )

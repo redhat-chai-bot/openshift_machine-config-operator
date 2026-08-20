@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/fixtures"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

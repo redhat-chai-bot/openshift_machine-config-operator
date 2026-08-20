@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/fixtures"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	testhelpers "github.com/openshift/machine-config-operator/test/helpers"
 	"github.com/stretchr/testify/assert"
