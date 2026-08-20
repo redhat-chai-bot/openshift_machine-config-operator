@@ -82,9 +82,16 @@ func GetBuildJobName(mosb *mcfgv1.MachineOSBuild) string {
 	return fmt.Sprintf("build-%s", getFieldFromMachineOSBuild(mosb))
 }
 
-// Computes the digest configmap name.
+// Computes the digest configmap name from a MachineOSBuild object.
 func GetDigestConfigMapName(mosb *mcfgv1.MachineOSBuild) string {
-	return fmt.Sprintf("digest-%s", getFieldFromMachineOSBuild(mosb))
+	return GetDigestConfigMapNameByName(getFieldFromMachineOSBuild(mosb))
+}
+
+// Computes the digest configmap name from a raw MachineOSBuild name string.
+// This avoids duplicating the "digest-" prefix logic when only the name is
+// available (e.g., when the MachineOSBuild object has not yet been fetched).
+func GetDigestConfigMapNameByName(name string) string {
+	return fmt.Sprintf("digest-%s", name)
 }
 
 // Computes the base image pull secret name.

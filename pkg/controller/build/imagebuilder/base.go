@@ -23,20 +23,22 @@ const (
 
 // Holds the common objects and methods needed to implement an ImageBuilder.
 type baseImageBuilder struct {
-	kubeclient   clientset.Interface
-	mcfgclient   mcfgclientset.Interface
-	mosb         *mcfgv1.MachineOSBuild
-	mosc         *mcfgv1.MachineOSConfig
-	builder      buildrequest.Builder
-	buildrequest buildrequest.BuildRequest
+	kubeclient       clientset.Interface
+	mcfgclient       mcfgclientset.Interface
+	mosb             *mcfgv1.MachineOSBuild
+	mosc             *mcfgv1.MachineOSConfig
+	builder          buildrequest.Builder
+	buildrequest     buildrequest.BuildRequest
+	imageBuilderType mcfgv1.MachineOSImageBuilderType
 }
 
 // Constructs a baseImageBuilder, deep-copying objects as needed.
-func newBaseImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder) *baseImageBuilder {
+func newBaseImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder, imageBuilderType mcfgv1.MachineOSImageBuilderType) *baseImageBuilder {
 	b := &baseImageBuilder{
-		kubeclient: kubeclient,
-		mcfgclient: mcfgclient,
-		builder:    builder,
+		kubeclient:       kubeclient,
+		mcfgclient:       mcfgclient,
+		builder:          builder,
+		imageBuilderType: imageBuilderType,
 	}
 
 	if mosb != nil {
@@ -51,8 +53,8 @@ func newBaseImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientse
 }
 
 // Constructs a baseImageBuilder and also instantiates a Cleaner instance based upon the object state.
-func newBaseImageBuilderWithCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder) (*baseImageBuilder, Cleaner) {
-	b := newBaseImageBuilder(kubeclient, mcfgclient, mosb, mosc, builder)
+func newBaseImageBuilderWithCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder, imageBuilderType mcfgv1.MachineOSImageBuilderType) (*baseImageBuilder, Cleaner) {
+	b := newBaseImageBuilder(kubeclient, mcfgclient, mosb, mosc, builder, imageBuilderType)
 	return b, &cleanerImpl{
 		baseImageBuilder: b,
 	}
@@ -100,7 +102,7 @@ func (b *baseImageBuilder) getMachineOSBuildStatus(ctx context.Context, obj kube
 
 	out.Conditions = conditions
 	out.Builder = &mcfgv1.MachineOSBuilderReference{
-		ImageBuilderType: mcfgv1.JobBuilder,
+		ImageBuilderType: b.imageBuilderType,
 		// TODO: Should we clear this whenever the build is complete?
 		Job: &mcfgv1.ObjectReference{
 			Name:      obj.GetName(),
@@ -135,8 +137,7 @@ func (b *baseImageBuilder) getDigestConfigMapName() (string, error) {
 		return "", err
 	}
 
-	// TODO: De-duplicate this.
-	return fmt.Sprintf("digest-%s", mosbName), nil
+	return utils.GetDigestConfigMapNameByName(mosbName), nil
 }
 
 // Gets the final image pullspec from the digestfile ConfigMap.
