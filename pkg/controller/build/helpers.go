@@ -22,15 +22,15 @@ import (
 )
 
 // ValidateOnClusterBuildConfig validates the existence of the MachineOSConfig and the required build inputs.
-func ValidateOnClusterBuildConfig(kubeclient clientset.Interface, mcfgclient versioned.Interface, layeredMCPs []*mcfgv1.MachineConfigPool) error {
+func ValidateOnClusterBuildConfig(ctx context.Context, kubeclient clientset.Interface, mcfgclient versioned.Interface, layeredMCPs []*mcfgv1.MachineConfigPool) error {
 	// Validate the presence of the MachineOSConfig
-	machineOSConfigs, err := mcfgclient.MachineconfigurationV1().MachineOSConfigs().List(context.TODO(), metav1.ListOptions{})
+	machineOSConfigs, err := mcfgclient.MachineconfigurationV1().MachineOSConfigs().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
 
 	secretGetter := func(name string) (*corev1.Secret, error) {
-		return kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Get(context.TODO(), name, metav1.GetOptions{})
+		return kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Get(ctx, name, metav1.GetOptions{})
 	}
 
 	moscForPoolExists := false

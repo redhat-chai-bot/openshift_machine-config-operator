@@ -1403,7 +1403,7 @@ func (optr *Operator) stopMachineOSBuilderDeployment(name string) error {
 // startOrUpdateMachineOSBuilderDeployment starts or updates the Machine OS Builder Deployment based on
 // the replica count
 func (optr *Operator) startOrUpdateMachineOSBuilderDeployment(mob *appsv1.Deployment, replicas int32, layeredMCPs []*mcfgv1.MachineConfigPool) error {
-	if err := build.ValidateOnClusterBuildConfig(optr.kubeClient, optr.client, layeredMCPs); err != nil {
+	if err := build.ValidateOnClusterBuildConfig(context.TODO(), optr.kubeClient, optr.client, layeredMCPs); err != nil {
 		return fmt.Errorf("could not update Machine OS Builder deployment: %w", err)
 	}
 

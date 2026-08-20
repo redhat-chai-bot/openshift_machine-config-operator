@@ -74,7 +74,7 @@ func TestValidateOnClusterBuildConfig(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			err = ValidateOnClusterBuildConfig(kubeclient, mcfgclient, []*mcfgv1.MachineConfigPool{lobj.MachineConfigPool})
+			err = ValidateOnClusterBuildConfig(context.TODO(), kubeclient, mcfgclient, []*mcfgv1.MachineConfigPool{lobj.MachineConfigPool})
 			if testCase.errExpected {
 				assert.Error(t, err)
 			} else {
