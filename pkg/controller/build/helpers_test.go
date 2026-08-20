@@ -200,6 +200,138 @@ func TestIsMachineOSBuildStatusUpdateNeeded(t *testing.T) {
 	}
 }
 
+func TestExtractNSAndNameWithTag(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		imageRef    string
+		wantNS      string
+		wantName    string
+		errExpected bool
+	}{
+		{
+			name:     "standard three-part ref with tag",
+			imageRef: "registry.example.com/mynamespace/myimage:latest",
+			wantNS:   "mynamespace",
+			wantName: "myimage:latest",
+		},
+		{
+			name:     "ref with digest",
+			imageRef: "registry.example.com/mynamespace/myimage@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			wantNS:   "mynamespace",
+			wantName: "myimage@sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		},
+		{
+			name:     "ref without tag or digest",
+			imageRef: "registry.example.com/mynamespace/myimage",
+			wantNS:   "mynamespace",
+			wantName: "myimage",
+		},
+		{
+			name:        "single-segment ref (no namespace)",
+			imageRef:    "myimage:latest",
+			errExpected: true,
+		},
+		{
+			name:        "empty string",
+			imageRef:    "",
+			errExpected: true,
+		},
+		{
+			name:     "deeply nested ref",
+			imageRef: "registry.example.com/org/sub/repo:v1",
+			wantNS:   "org",
+			wantName: "sub/repo:v1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ns, nameTag, err := extractNSAndNameWithTag(tt.imageRef)
+			if tt.errExpected {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantNS, ns)
+			assert.Equal(t, tt.wantName, nameTag)
+		})
+	}
+}
+
+func TestGetBuildErrorFromMOSB(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		mosb      *mcfgv1.MachineOSBuild
+		wantNil   bool
+		wantMatch string
+	}{
+		{
+			name: "zero-length conditions returns nil",
+			mosb: &mcfgv1.MachineOSBuild{
+				Status: mcfgv1.MachineOSBuildStatus{
+					Conditions: []metav1.Condition{},
+				},
+			},
+			wantNil: true,
+		},
+		{
+			name: "nil conditions returns nil",
+			mosb: &mcfgv1.MachineOSBuild{
+				Status: mcfgv1.MachineOSBuildStatus{},
+			},
+			wantNil: true,
+		},
+		{
+			name: "failed condition returns error",
+			mosb: &mcfgv1.MachineOSBuild{
+				Status: mcfgv1.MachineOSBuildStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:    "Failed",
+							Status:  metav1.ConditionTrue,
+							Reason:  "BuildFailed",
+							Message: "container exited non-zero",
+						},
+					},
+				},
+			},
+			wantMatch: "BuildFailed: container exited non-zero",
+		},
+		{
+			name: "no failed condition returns unknown build failure",
+			mosb: &mcfgv1.MachineOSBuild{
+				Status: mcfgv1.MachineOSBuildStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Succeeded",
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			wantMatch: "build failed for unknown reason",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := getBuildErrorFromMOSB(tt.mosb)
+			if tt.wantNil {
+				assert.NoError(t, err)
+				return
+			}
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantMatch)
+		})
+	}
+}
+
 func TestNeedsPreBuiltImageAnnotationCleanup(t *testing.T) {
 	t.Parallel()
 

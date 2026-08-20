@@ -185,25 +185,14 @@ func isMachineOSBuildStatusUpdateNeeded(oldStatus, curStatus mcfgv1.MachineOSBui
 	return false, ""
 }
 
-// Converts a list of MachineOSConfigs into a list of their names.
-func getMachineOSConfigNames(moscList []*mcfgv1.MachineOSConfig) []string {
-	out := []string{}
-
-	for _, mosc := range moscList {
-		out = append(out, mosc.Name)
+// getObjectNames extracts the name from each element of a typed slice.
+// This replaces the near-identical getMachineOSConfigNames and
+// getMachineOSBuildNames helpers with a single generic implementation.
+func getObjectNames[T metav1.Object](items []T) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.GetName())
 	}
-
-	return out
-}
-
-// Converts a list of MachineOSBuilds into a list of their names.
-func getMachineOSBuildNames(mosbList []*mcfgv1.MachineOSBuild) []string {
-	out := []string{}
-
-	for _, mosc := range mosbList {
-		out = append(out, mosc.Name)
-	}
-
 	return out
 }
 
@@ -263,19 +252,15 @@ func getPreBuiltImage(mosc *mcfgv1.MachineOSConfig) (string, bool) {
 	return image, exists && image != ""
 }
 
-// shouldSeedWithPreBuiltImage determines if a MachineOSConfig should be seeded with a pre-built image.
-// Returns true if:
-// - The MOSC has a pre-built image annotation
-// - The MOSC does NOT have a current build annotation (meaning seeding hasn't happened yet)
+// shouldSeedWithPreBuiltImage determines if a MachineOSConfig should be seeded
+// with a pre-built image. Returns true if:
+//   - The MOSC has a non-empty pre-built image annotation
+//   - The MOSC does NOT have a current build annotation (meaning seeding hasn't happened yet)
+//
+// This is also useful for skipping normal build workflows when the seeding
+// workflow should handle it. Seeding is considered complete once the
+// currentBuild annotation is set.
 func shouldSeedWithPreBuiltImage(mosc *mcfgv1.MachineOSConfig) bool {
-	_, hasImage := getPreBuiltImage(mosc)
-	return hasImage && !hasCurrentBuildAnnotation(mosc)
-}
-
-// isPreBuiltImageAwaitingSeeding checks if a MOSC has pre-built image annotation but hasn't been seeded.
-// This is useful for skipping normal build workflows when the seeding workflow should handle it.
-// Seeding is considered complete once the currentBuild annotation is set.
-func isPreBuiltImageAwaitingSeeding(mosc *mcfgv1.MachineOSConfig) bool {
 	_, hasImage := getPreBuiltImage(mosc)
 	return hasImage && !hasCurrentBuildAnnotation(mosc)
 }
@@ -316,21 +301,46 @@ func ignoreErrIsNotFound(err error) error {
 	return err
 }
 
-// Extracts the namespace and name:tag from an image reference.
+// Extracts the namespace and name:tag from an image reference using the
+// containers/image reference parser. The returned namespace is the first
+// path component after the registry host and the nameWithTag is everything
+// after it (e.g., "repo:tag" or "repo@sha256:…").
 func extractNSAndNameWithTag(imageRef string) (string, string, error) {
-	// Split the image reference to give an array of [registry, namespace, name:tag]
-	parts := strings.SplitN(imageRef, "/", 3)
-	if len(parts) < 3 {
-		return "", "", fmt.Errorf("invalid image reference: %s", imageRef)
+	named, err := reference.ParseNamed(imageRef)
+	if err != nil {
+		return "", "", fmt.Errorf("could not parse image reference %q: %w", imageRef, err)
 	}
 
-	return parts[1], parts[2], nil
+	// reference.Path() returns everything after the host, e.g. "namespace/name".
+	path := reference.Path(named)
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("image reference %q has no namespace component", imageRef)
+	}
+
+	ns := parts[0]
+
+	// Re-append tag or digest to the name portion.
+	nameWithTag := parts[1]
+	if tagged, ok := named.(reference.Tagged); ok {
+		nameWithTag = parts[1] + ":" + tagged.Tag()
+	} else if digested, ok := named.(reference.Digested); ok {
+		nameWithTag = parts[1] + "@" + digested.Digest().String()
+	}
+
+	return ns, nameWithTag, nil
 }
 
 var errUnknownBuildFailure = fmt.Errorf("build failed for unknown reason")
 
-// Extracts meaningful error from MachineOSBuild
+// Extracts meaningful error from MachineOSBuild. Returns nil when the build
+// has no conditions (e.g., a succeeded build or one that has not yet been
+// reconciled), making the helper safe for any MachineOSBuild state.
 func getBuildErrorFromMOSB(mosb *mcfgv1.MachineOSBuild) error {
+	if len(mosb.Status.Conditions) == 0 {
+		return nil
+	}
+
 	for _, condition := range mosb.Status.Conditions {
 		if condition.Type == "Failed" && condition.Status == metav1.ConditionTrue {
 			return fmt.Errorf("%s: %s", condition.Reason, condition.Message)

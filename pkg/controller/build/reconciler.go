@@ -1347,7 +1347,7 @@ func (b *buildReconciler) syncMachineOSBuild(ctx context.Context, mosb *mcfgv1.M
 
 			// If this MOSC has a pre-built image annotation and hasn't been seeded yet,
 			// don't start a real build - the seeding workflow should handle creating a synthetic build
-			if isPreBuiltImageAwaitingSeeding(mosc) {
+			if shouldSeedWithPreBuiltImage(mosc) {
 				klog.Infof("MachineOSBuild %q associated with MachineOSConfig %q has pre-built image annotation but hasn't been seeded yet, skipping real build start (seeding workflow should handle this)", mosb.Name, mosc.Name)
 				return nil
 			}
@@ -1424,7 +1424,7 @@ func (b *buildReconciler) syncMachineOSConfig(ctx context.Context, mosc *mcfgv1.
 			return fmt.Errorf("could not list MachineOSBuilds for MachineOSConfig %q: %w", mosc.Name, err)
 		}
 
-		klog.V(4).Infof("MachineOSConfig %q is associated with %d MachineOSBuilds %v", mosc.Name, len(mosbs), getMachineOSBuildNames(mosbs))
+		klog.V(4).Infof("MachineOSConfig %q is associated with %d MachineOSBuilds %v", mosc.Name, len(mosbs), getObjectNames(mosbs))
 
 		for _, mosb := range mosbs {
 			// If we found the currently-associated MachineOSBuild for this
@@ -1711,14 +1711,14 @@ func (b *buildReconciler) reuseImageForNewMOSB(ctx context.Context, mosc *mcfgv1
 }
 
 // getObjectsForImagePruner retrieves the secret for the MachineOSBuild and the ControllerConfig for use by the imagepruner.
-func (b *buildReconciler) getObjectsForImagePruner(mosb *mcfgv1.MachineOSBuild) (*corev1.Secret, *mcfgv1.ControllerConfig, error) {
+func (b *buildReconciler) getObjectsForImagePruner(ctx context.Context, mosb *mcfgv1.MachineOSBuild) (*corev1.Secret, *mcfgv1.ControllerConfig, error) {
 	secretName := mosb.Annotations[constants.RenderedImagePushSecretAnnotationKey]
 
 	if secretName == "" {
 		return nil, nil, fmt.Errorf("MachineOSBuild %s missing annotation %s", mosb.Name, constants.RenderedImagePushSecretAnnotationKey)
 	}
 
-	secret, err := b.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	secret, err := b.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not get rendered push secret %s: %w", secretName, err)
 	}
@@ -1737,7 +1737,7 @@ func (b *buildReconciler) getObjectsForImagePruner(mosb *mcfgv1.MachineOSBuild) 
 
 // inspectImage retrieves the necessary objects and calls InspectImage on the imagepruner.
 func (b *buildReconciler) inspectImage(ctx context.Context, pullspec string, mosb *mcfgv1.MachineOSBuild) (*types.ImageInspectInfo, error) {
-	secret, cc, err := b.getObjectsForImagePruner(mosb)
+	secret, cc, err := b.getObjectsForImagePruner(ctx, mosb)
 	if err != nil {
 		return nil, err
 	}
@@ -1760,7 +1760,7 @@ func (b *buildReconciler) deleteImage(ctx context.Context, pullspec string, mosb
 		if err != nil {
 			return err
 		}
-		if err := b.imageclient.ImageV1().ImageStreamTags(ns).Delete(context.TODO(), img, metav1.DeleteOptions{}); err != nil {
+		if err := b.imageclient.ImageV1().ImageStreamTags(ns).Delete(ctx, img, metav1.DeleteOptions{}); err != nil {
 			if k8serrors.IsNotFound(err) {
 				klog.Infof("image %s for MachineOSBuild %s not found", pullspec, mosb.Name)
 				return nil
@@ -1771,7 +1771,7 @@ func (b *buildReconciler) deleteImage(ctx context.Context, pullspec string, mosb
 	}
 
 	klog.Infof("Deleting image %s from external registry using skopeo for MachineOSBuild %s", pullspec, mosb.Name)
-	secret, cc, err := b.getObjectsForImagePruner(mosb)
+	secret, cc, err := b.getObjectsForImagePruner(ctx, mosb)
 	if err != nil {
 		return err
 	}
