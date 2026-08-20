@@ -212,6 +212,11 @@ func assertObserverCanGetJobStatus(ctx context.Context, t *testing.T, obs ImageB
 	assert.True(t, apihelpers.IsMachineOSBuildConditionTrue(mosbStatus.Conditions, buildprogress))
 
 	assert.NotNil(t, mosbStatus.Builder)
+	assert.Equal(t, mcfgv1.JobBuilder, mosbStatus.Builder.ImageBuilderType)
+	require.NotNil(t, mosbStatus.Builder.Job)
+	assert.NotEmpty(t, mosbStatus.Builder.Job.Name)
+	assert.Equal(t, "jobs", mosbStatus.Builder.Job.Resource)
+	assert.Equal(t, ctrlcommon.MCONamespace, mosbStatus.Builder.Job.Namespace)
 
 	assert.NotNil(t, mosbStatus.BuildStart)
 

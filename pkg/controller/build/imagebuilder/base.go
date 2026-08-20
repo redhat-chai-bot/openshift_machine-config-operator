@@ -112,7 +112,11 @@ func (b *baseImageBuilder) getMachineOSBuildStatus(ctx context.Context, obj kube
 	out.Conditions = conditions
 	out.Builder = &mcfgv1.MachineOSBuilderReference{
 		ImageBuilderType: b.imageBuilderType,
-		// TODO: Should we clear this whenever the build is complete?
+		// The Job reference identifies the Job that ran the build; it is
+		// intentionally retained even for terminal (succeeded/failed/interrupted)
+		// builds.  The MachineOSBuilderReference CEL validation rule requires
+		// the Job field to be present whenever ImageBuilderType is "Job", so
+		// clearing it on completion would violate the API contract.
 		Job: &mcfgv1.ObjectReference{
 			Name:      obj.GetName(),
 			Group:     batchv1.SchemeGroupVersion.Group,
