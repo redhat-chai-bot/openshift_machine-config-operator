@@ -852,3 +852,101 @@ func TestUpdateMOSCImagePullSpec_ListerError(t *testing.T) {
 		t.Fatal("expected error for missing MOSC in lister")
 	}
 }
+
+// countingEventRecorder embeds the noop recorder and counts terminal events.
+type countingEventRecorder struct {
+	services.EventRecorder
+	failedCount      atomic.Int64
+	completedCount   atomic.Int64
+	interruptedCount atomic.Int64
+}
+
+func newCountingEventRecorder() *countingEventRecorder {
+	return &countingEventRecorder{EventRecorder: services.NewNoopEventRecorder()}
+}
+
+func (c *countingEventRecorder) RecordBuildFailed(_ *mcfgv1.MachineOSBuild) { c.failedCount.Add(1) }
+func (c *countingEventRecorder) RecordBuildCompleted(_ *mcfgv1.MachineOSBuild, _ string) {
+	c.completedCount.Add(1)
+}
+func (c *countingEventRecorder) RecordBuildInterrupted(_ *mcfgv1.MachineOSBuild, _ string) {
+	c.interruptedCount.Add(1)
+}
+
+// TestTerminalEventsNotDuplicated verifies that re-reconciling an
+// already-terminal MOSB does not emit duplicate terminal events.
+func TestTerminalEventsNotDuplicated(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-mosc",
+			Labels: map[string]string{constants.TargetMachineConfigPoolLabelKey: "worker"},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-mosb",
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "test-mosc",
+			},
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuildFailed), Status: metav1.ConditionTrue},
+			},
+		},
+	}
+
+	events := newCountingEventRecorder()
+	mcfgclient := newFakeReconcileMCFGClient(mosb, mosc)
+
+	r := &MOSBReconciler{
+		kubeclient: k8sfake.NewSimpleClientset(),
+		mcfgclient: mcfgclient,
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		events:     events,
+		metrics:    services.NewNoopMetricsRecorder(),
+		degraded:   &fakeDegradedHandler{},
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+			MachineOSConfigLister:   &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+			MachineConfigPoolLister: &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		},
+	}
+
+	// First reconcile — should emit the failed event.
+	err := r.ReconcileMOSB(context.Background(), "test-mosb")
+	if err != nil {
+		t.Fatalf("first reconcile error: %v", err)
+	}
+	if events.failedCount.Load() != 1 {
+		t.Errorf("expected 1 failed event after first reconcile, got %d", events.failedCount.Load())
+	}
+
+	// Re-read the MOSB from the fake client to get the updated annotation.
+	updated, err := mcfgclient.MachineconfigurationV1().MachineOSBuilds().Get(context.Background(), "test-mosb", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get MOSB: %v", err)
+	}
+
+	// Update the lister to return the annotated MOSB.
+	r.mosbLister = &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{updated}}
+	r.utilListers.MachineOSBuildLister = r.mosbLister
+
+	// Second reconcile — should NOT emit the failed event again.
+	err = r.ReconcileMOSB(context.Background(), "test-mosb")
+	if err != nil {
+		t.Fatalf("second reconcile error: %v", err)
+	}
+	if events.failedCount.Load() != 1 {
+		t.Errorf("expected 1 failed event after second reconcile (no duplicate), got %d", events.failedCount.Load())
+	}
+}

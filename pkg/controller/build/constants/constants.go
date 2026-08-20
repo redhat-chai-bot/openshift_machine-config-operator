@@ -110,6 +110,14 @@ const (
 	EtcPkiRpmGpgAnnotationKey      = entitlementsAnnotationKeyBase + EtcPkiRpmGpgSecretName
 )
 
+// Terminal state handling
+const (
+	// TerminalHandledAnnotationKey marks a MachineOSBuild whose terminal
+	// state (success/failure/interrupted) has already been processed by the
+	// reconciler. It prevents duplicate event emissions on re-reconcile.
+	TerminalHandledAnnotationKey = "machineconfiguration.openshift.io/terminal-handled"
+)
+
 // batchv1.Job configuration
 const (
 	JobMaxRetries  int32 = 3

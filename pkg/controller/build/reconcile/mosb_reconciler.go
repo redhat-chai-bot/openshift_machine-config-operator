@@ -105,7 +105,10 @@ func (r *MOSBReconciler) ReconcileMOSB(ctx context.Context, key string) error {
 }
 
 // handleTerminalState processes a MOSB in a terminal state (success/failure/interrupted).
-// It updates metrics and degraded condition as needed.
+// It updates metrics and degraded condition as needed. The annotation
+// TerminalHandledAnnotationKey is used as a transition guard so that
+// events are only emitted when the MOSB first transitions into a
+// terminal state, not on every re-reconcile.
 func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.MachineOSBuild, state ctrlcommon.MachineOSBuildState) error {
 	mosc, err := utils.GetMachineOSConfigForMachineOSBuild(mosb, r.utilListers)
 	if err != nil {
@@ -121,42 +124,76 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 		return fmt.Errorf("could not get MCP %q: %w", poolName, err)
 	}
 
+	// Check if we already handled this terminal state on a previous
+	// reconcile to avoid emitting duplicate events.
+	alreadyHandled := mosb.Annotations != nil && mosb.Annotations[constants.TerminalHandledAnnotationKey] == constants.TrueValue
+
 	switch {
 	case state.IsBuildFailure():
-		r.events.RecordBuildFailed(mosb)
-		r.events.RecordBuildDegraded(mosc)
+		if !alreadyHandled {
+			r.events.RecordBuildFailed(mosb)
+			r.events.RecordBuildDegraded(mosc)
+		}
+		if err := r.markTerminalHandled(ctx, mosb); err != nil {
+			return err
+		}
 		return r.degraded.UpdateImageBuildDegraded(ctx, mcp, mosc)
 
 	case state.IsBuildSuccess():
-		r.events.RecordBuildCompleted(mosb, string(mosb.Status.DigestedImagePushSpec))
-		// Check if we're recovering from degraded.
-		if apihelpers.IsMachineConfigPoolConditionTrue(mcp.Status.Conditions, mcfgv1.MachineConfigPoolImageBuildDegraded) {
-			r.events.RecordBuildRecovered(mosc)
+		if !alreadyHandled {
+			r.events.RecordBuildCompleted(mosb, string(mosb.Status.DigestedImagePushSpec))
+			// Check if we're recovering from degraded.
+			if apihelpers.IsMachineConfigPoolConditionTrue(mcp.Status.Conditions, mcfgv1.MachineConfigPoolImageBuildDegraded) {
+				r.events.RecordBuildRecovered(mosc)
+			}
+			// Update the parent MOSC status with the built image pullspec.
+			if err := r.updateMOSCImagePullSpec(ctx, mosc, mosb); err != nil {
+				return fmt.Errorf("could not update MOSC %q image pullspec: %w", mosc.Name, err)
+			}
+			// Clean up ephemeral ConfigMaps/Secrets created for the build.
+			cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)
+			if err := cleaner.Clean(ctx); err != nil {
+				klog.Warningf("MOSBReconciler: could not clean ephemeral objects for %q: %v", mosb.Name, err)
+			}
 		}
-		// Update the parent MOSC status with the built image pullspec.
-		if err := r.updateMOSCImagePullSpec(ctx, mosc, mosb); err != nil {
-			return fmt.Errorf("could not update MOSC %q image pullspec: %w", mosc.Name, err)
-		}
-		// Clean up ephemeral ConfigMaps/Secrets created for the build.
-		// Use NewEphemeralCleaner (not NewJobImageBuildCleaner) because the
-		// job completed successfully and does not need to be stopped/deleted.
-		cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)
-		if err := cleaner.Clean(ctx); err != nil {
-			klog.Warningf("MOSBReconciler: could not clean ephemeral objects for %q: %v", mosb.Name, err)
+		if err := r.markTerminalHandled(ctx, mosb); err != nil {
+			return err
 		}
 		return r.degraded.UpdateImageBuildDegraded(ctx, mcp, mosc)
 
 	case state.IsBuildInterrupted():
-		r.events.RecordBuildInterrupted(mosb, "build was interrupted, cleaning up for retry")
-		// Clean up ephemeral build objects so the next reconcile
-		// can start fresh.
-		cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)
-		if err := cleaner.Clean(ctx); err != nil {
-			klog.Warningf("MOSBReconciler: could not clean ephemeral objects for interrupted build %q: %v", mosb.Name, err)
+		if !alreadyHandled {
+			r.events.RecordBuildInterrupted(mosb, "build was interrupted, cleaning up for retry")
+			// Clean up ephemeral build objects so the next reconcile
+			// can start fresh.
+			cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)
+			if err := cleaner.Clean(ctx); err != nil {
+				klog.Warningf("MOSBReconciler: could not clean ephemeral objects for interrupted build %q: %v", mosb.Name, err)
+			}
+		}
+		if err := r.markTerminalHandled(ctx, mosb); err != nil {
+			return err
 		}
 		return r.degraded.UpdateImageBuildDegraded(ctx, mcp, mosc)
 	}
 
+	return nil
+}
+
+// markTerminalHandled sets the terminal-handled annotation on the MOSB
+// so that subsequent reconciles skip event emission and one-time cleanup.
+func (r *MOSBReconciler) markTerminalHandled(ctx context.Context, mosb *mcfgv1.MachineOSBuild) error {
+	if mosb.Annotations != nil && mosb.Annotations[constants.TerminalHandledAnnotationKey] == constants.TrueValue {
+		return nil
+	}
+	if r.mcfgclient == nil {
+		return nil
+	}
+	metav1.SetMetaDataAnnotation(&mosb.ObjectMeta, constants.TerminalHandledAnnotationKey, constants.TrueValue)
+	_, err := r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().Update(ctx, mosb, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("could not set terminal-handled annotation on MOSB %q: %w", mosb.Name, err)
+	}
 	return nil
 }
 
