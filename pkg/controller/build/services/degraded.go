@@ -38,6 +38,9 @@ type DegradedHandler interface {
 	UpdateImageBuildDegraded(ctx context.Context, pool *mcfgv1.MachineConfigPool, mosc *mcfgv1.MachineOSConfig) error
 }
 
+// Compile-time interface satisfaction check.
+var _ DegradedHandler = &degradedHandler{}
+
 // degradedHandler is the production implementation of DegradedHandler.
 type degradedHandler struct {
 	mcfgclient mcfgclientset.Interface

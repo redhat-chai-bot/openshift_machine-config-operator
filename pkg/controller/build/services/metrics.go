@@ -273,6 +273,10 @@ func (m *metricsRecorder) UpdateMOSCCount(count float64) {
 	m.moscCount.Set(count)
 }
 
+// Compile-time interface satisfaction checks.
+var _ MetricsRecorder = &metricsRecorder{}
+var _ MetricsRecorder = &noopMetricsRecorder{}
+
 // noopMetricsRecorder is a no-op MetricsRecorder for use in tests.
 type noopMetricsRecorder struct{}
 

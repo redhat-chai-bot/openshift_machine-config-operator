@@ -175,6 +175,8 @@ func RegisterOCLMetrics() error {
 	return err
 }
 
+var _ reconcile.Reconciler = &compositeReconciler{}
+
 // compositeReconciler delegates each method to the appropriate sub-reconciler.
 type compositeReconciler struct {
 	mosc *reconcile.MOSCReconciler

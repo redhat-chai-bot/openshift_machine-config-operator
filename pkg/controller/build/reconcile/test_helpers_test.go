@@ -1,9 +1,8 @@
 package reconcile
 
 import (
-	"fmt"
-
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -128,5 +127,10 @@ func (f *fakeMCListerForSelector) Get(name string) (*mcfgv1.MachineConfig, error
 	return nil, notFound("MachineConfig", name)
 }
 
-// Ensure fake listers work (compile-time check — these are used in tests)
-var _ fmt.Stringer = fmt.Stringer(nil) // dummy to keep fmt imported
+// Compile-time interface satisfaction checks for fake listers.
+var (
+	_ mcfglistersv1.MachineOSBuildLister  = &fakeMOSBListerForSelector{}
+	_ mcfglistersv1.MachineOSConfigLister = &fakeMOSCListerForSelector{}
+	_ mcfglistersv1.MachineConfigPoolLister = &fakeMCPListerForSelector{}
+	_ mcfglistersv1.MachineConfigLister   = &fakeMCListerForSelector{}
+)

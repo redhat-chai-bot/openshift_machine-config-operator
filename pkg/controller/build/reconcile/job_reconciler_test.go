@@ -18,6 +18,8 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 )
 
+var _ batchlisterv1.JobLister = &fakeJobLister{}
+
 // fakeJobLister satisfies batchlisterv1.JobLister.
 type fakeJobLister struct {
 	items []*batchv1.Job

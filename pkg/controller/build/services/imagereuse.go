@@ -38,6 +38,9 @@ type ImageReuseChecker interface {
 	EvaluateReuse(ctx context.Context, mosc *mcfgv1.MachineOSConfig, existingMosb *mcfgv1.MachineOSBuild) (ImageReuseResult, error)
 }
 
+// Compile-time interface satisfaction check.
+var _ ImageReuseChecker = &imageReuseChecker{}
+
 // imageReuseChecker is the production implementation of ImageReuseChecker.
 type imageReuseChecker struct {
 	imagePruner      imagepruner.ImagePruner

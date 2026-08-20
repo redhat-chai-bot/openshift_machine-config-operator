@@ -40,6 +40,9 @@ type Seeder interface {
 	Seed(ctx context.Context, mosc *mcfgv1.MachineOSConfig, imageSpec string) error
 }
 
+// Compile-time interface satisfaction check.
+var _ Seeder = &seeder{}
+
 // seeder is the production implementation of Seeder.
 type seeder struct {
 	mcfgclient mcfgclientset.Interface

@@ -189,6 +189,10 @@ func (r *oclEventRecorder) RecordBuildRecovered(mosc *mcfgv1.MachineOSConfig) {
 		fmt.Sprintf("Build for pool %q recovered from degraded state", mosc.Spec.MachineConfigPool.Name))
 }
 
+// Compile-time interface satisfaction checks.
+var _ EventRecorder = &oclEventRecorder{}
+var _ EventRecorder = &noopEventRecorder{}
+
 // noopEventRecorder is a no-op implementation of EventRecorder for testing.
 type noopEventRecorder struct{}
 
