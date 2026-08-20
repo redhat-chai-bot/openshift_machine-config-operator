@@ -100,11 +100,11 @@ func (c *cleanerImpl) Clean(ctx context.Context) error {
 // this is called more than once, it will not error.
 func (c *cleanerImpl) deleteConfigMap(ctx context.Context, cmName, mosbName, mosbJobUIDAnnotation string) error {
 	cm, err := c.kubeclient.CoreV1().ConfigMaps(ctrlcommon.MCONamespace).Get(ctx, cmName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
 	if k8serrors.IsNotFound(err) {
 		return nil
+	}
+	if err != nil {
+		return err
 	}
 
 	// Ensure that we delete the correct configmap for the Job we are cleaning up
@@ -129,11 +129,11 @@ func (c *cleanerImpl) deleteConfigMap(ctx context.Context, cmName, mosbName, mos
 // this is called more than once, it will not error.
 func (c *cleanerImpl) deleteSecret(ctx context.Context, secretName, mosbName, mosbJobUIDAnnotation string) error {
 	secret, err := c.kubeclient.CoreV1().Secrets(ctrlcommon.MCONamespace).Get(ctx, secretName, metav1.GetOptions{})
-	if err != nil {
-		return err
-	}
 	if k8serrors.IsNotFound(err) {
 		return nil
+	}
+	if err != nil {
+		return err
 	}
 
 	// Ensure that we are deleting the correct secret for the Job we are cleaning up
