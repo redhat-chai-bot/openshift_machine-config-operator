@@ -13,7 +13,10 @@ import (
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	fakeclientmachineconfiguration "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
+	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
@@ -325,5 +328,98 @@ func TestMultipleQueuesIndependent(t *testing.T) {
 	}
 	if bc.jobQueue.Len() != 1 {
 		t.Errorf("jobQueue: expected len 1, got %d", bc.jobQueue.Len())
+	}
+}
+
+// TestOSBuildController_EndToEnd_WorkqueueDispatch exercises the full
+// Controller → compositeReconciler → workqueue pipeline with real informers
+// and fake clients, verifying that creating a MOSC via the fake client
+// triggers reconciliation through the actual workqueue dispatch path.
+func TestOSBuildController_EndToEnd_WorkqueueDispatch(t *testing.T) {
+	// Pre-populate fake clients with a MCP and MC.
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-1"},
+			},
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-1",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	cc := &mcfgv1.ControllerConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "machine-config-controller"},
+	}
+
+	mcfgclient := fakeclientmachineconfiguration.NewSimpleClientset(mcp, mc, cc)
+	kubeclient := k8sfake.NewSimpleClientset()
+
+	cfg := Config{
+		MaxRetries:           3,
+		UpdateDelay:          time.Millisecond * 10,
+		MaxShutdownDelay:     time.Second * 2,
+		ShutdownPollInterval: time.Millisecond * 50,
+	}
+
+	ctrl := newOSBuildController(cfg, mcfgclient, kubeclient, imagepruner.NewImagePruner())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start the controller in background.
+	go ctrl.Run(ctx, 1)
+
+	// Wait for caches to sync (with timeout).
+	syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer syncCancel()
+	if !cache.WaitForCacheSync(syncCtx.Done(), ctrl.inner.informers.hasSynced...) {
+		t.Fatal("caches failed to sync")
+	}
+
+	// Create a MOSC via the fake client — this should trigger informer → queue → reconcile.
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/ocp:latest",
+		},
+	}
+	_, err := mcfgclient.MachineconfigurationV1().MachineOSConfigs().Create(ctx, mosc, metav1.CreateOptions{})
+	if err != nil {
+		t.Fatalf("could not create MOSC: %v", err)
+	}
+
+	// Poll for a MOSB to be created (the reconciler should create one).
+	var mosbFound bool
+	for i := 0; i < 50; i++ {
+		time.Sleep(100 * time.Millisecond)
+		mosbList, err := mcfgclient.MachineconfigurationV1().MachineOSBuilds().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			continue
+		}
+		if len(mosbList.Items) > 0 {
+			mosbFound = true
+			t.Logf("MOSB created via workqueue dispatch: %s", mosbList.Items[0].Name)
+			break
+		}
+	}
+	if !mosbFound {
+		t.Error("expected MOSB to be created via workqueue dispatch, but none found after 5s")
+	}
+
+	// Shutdown.
+	cancel()
+	select {
+	case <-ctrl.ShutdownChan():
+		t.Log("controller shut down cleanly")
+	case <-time.After(5 * time.Second):
+		t.Error("controller did not shut down within 5s")
 	}
 }
