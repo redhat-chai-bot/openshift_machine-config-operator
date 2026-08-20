@@ -67,7 +67,7 @@ func TestPoolReconciler_EnsuresBuild(t *testing.T) {
 			Name: "test-mosc",
 		},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/ocp:latest",
 		},
 	}
@@ -76,7 +76,7 @@ func TestPoolReconciler_EnsuresBuild(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-1",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -188,7 +188,7 @@ func TestEnsureBuildForPool_MOSBListerError(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/image",
 		},
 	}
@@ -196,7 +196,7 @@ func TestEnsureBuildForPool_MOSBListerError(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-1",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},
@@ -204,6 +204,7 @@ func TestEnsureBuildForPool_MOSBListerError(t *testing.T) {
 
 	// errorMOSBLister returns a non-NotFound error.
 	r := &PoolReconciler{
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
 		mosbLister: &errorMOSBListerPool{err: fmt.Errorf("lister broken")},
 		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
 	}
@@ -243,7 +244,8 @@ func TestEnsureBuildForPool_MCNotFound(t *testing.T) {
 	}
 
 	r := &PoolReconciler{
-		mcLister: &fakeMCListerForSelector{items: nil},
+		mcpLister: &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:  &fakeMCListerForSelector{items: nil},
 	}
 
 	err := r.ensureBuildForPool(context.Background(), mcp, mosc)
@@ -267,7 +269,7 @@ func TestPoolReconciler_DegradedUpdateError(t *testing.T) {
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mosc"},
 		Spec: mcfgv1.MachineOSConfigSpec{
-			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: "worker"},
 			RenderedImagePushSpec: "registry.example.com/ocp:latest",
 		},
 	}
@@ -275,7 +277,7 @@ func TestPoolReconciler_DegradedUpdateError(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "rendered-worker-1",
 			Annotations: map[string]string{
-				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.ReleaseImageVersionAnnotationKey:          "4.19.0",
 				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
 			},
 		},

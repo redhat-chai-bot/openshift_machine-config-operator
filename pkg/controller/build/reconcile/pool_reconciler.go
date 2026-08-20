@@ -7,11 +7,9 @@ import (
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -95,18 +93,9 @@ func (r *PoolReconciler) ReconcilePool(ctx context.Context, key string) error {
 // ensureBuildForPool creates a new MachineOSBuild if the pool's desired
 // rendered config doesn't have one yet.
 func (r *PoolReconciler) ensureBuildForPool(ctx context.Context, mcp *mcfgv1.MachineConfigPool, mosc *mcfgv1.MachineOSConfig) error {
-	mc, err := r.mcLister.Get(mcp.Spec.Configuration.Name)
+	desiredMOSB, err := buildDesiredMOSBFromListers(mosc, r.mcpLister, r.mcLister)
 	if err != nil {
-		return fmt.Errorf("could not get MC %q: %w", mcp.Spec.Configuration.Name, err)
-	}
-
-	desiredMOSB, err := buildrequest.NewMachineOSBuild(buildrequest.MachineOSBuildOpts{
-		MachineConfig:     mc,
-		MachineOSConfig:   mosc,
-		MachineConfigPool: mcp,
-	})
-	if err != nil {
-		return fmt.Errorf("could not compute desired MOSB name: %w", err)
+		return err
 	}
 
 	// Check if it already exists.
@@ -119,19 +108,11 @@ func (r *PoolReconciler) ensureBuildForPool(ctx context.Context, mcp *mcfgv1.Mac
 		return fmt.Errorf("could not check for MOSB %q: %w", desiredMOSB.Name, err)
 	}
 
-	// Create the MOSB.
-	oref := metav1.NewControllerRef(mosc, mcfgv1.SchemeGroupVersion.WithKind("MachineOSConfig"))
-	desiredMOSB.SetOwnerReferences([]metav1.OwnerReference{*oref})
-
-	_, err = r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().Create(ctx, desiredMOSB, metav1.CreateOptions{})
-	if err != nil {
-		if k8serrors.IsAlreadyExists(err) {
-			return nil
-		}
-		return fmt.Errorf("could not create MOSB for pool %q: %w", mcp.Name, err)
+	// Create the MOSB using the shared helper.
+	if _, err := createMachineOSBuildForMOSC(ctx, r.mcfgclient, desiredMOSB, mosc); err != nil {
+		return err
 	}
 
-	klog.Infof("PoolReconciler: created MachineOSBuild %q for pool %q", desiredMOSB.Name, mcp.Name)
 	r.events.RecordPoolConfigChanged(mcp, "", mcp.Spec.Configuration.Name)
 	r.metrics.RecordConfigChange(mcp.Name)
 	return nil

@@ -8,7 +8,6 @@ import (
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
@@ -185,19 +184,10 @@ func (r *MOSCReconciler) createMachineOSBuild(ctx context.Context, mosc *mcfgv1.
 		return err
 	}
 
-	oref := metav1.NewControllerRef(mosc, mcfgv1.SchemeGroupVersion.WithKind("MachineOSConfig"))
-	mosb.SetOwnerReferences([]metav1.OwnerReference{*oref})
-
-	_, err = r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().Create(ctx, mosb, metav1.CreateOptions{})
-	if err != nil {
-		if k8serrors.IsAlreadyExists(err) {
-			klog.Infof("MOSCReconciler: MachineOSBuild %q already exists", mosb.Name)
-			return nil
-		}
-		return fmt.Errorf("could not create MachineOSBuild for %q: %w", mosc.Name, err)
+	if _, err := createMachineOSBuildForMOSC(ctx, r.mcfgclient, mosb, mosc); err != nil {
+		return err
 	}
 
-	klog.Infof("MOSCReconciler: created MachineOSBuild %q for MachineOSConfig %q", mosb.Name, mosc.Name)
 	r.events.RecordConfigReconciled(mosc)
 	r.metrics.RecordConfigChange(mosc.Spec.MachineConfigPool.Name)
 	return nil
@@ -205,24 +195,7 @@ func (r *MOSCReconciler) createMachineOSBuild(ctx context.Context, mosc *mcfgv1.
 
 // buildDesiredMOSB constructs the desired MachineOSBuild from current MCP/MC state.
 func (r *MOSCReconciler) buildDesiredMOSB(mosc *mcfgv1.MachineOSConfig) (*mcfgv1.MachineOSBuild, error) {
-	mcp, err := r.mcpLister.Get(mosc.Spec.MachineConfigPool.Name)
-	if err != nil {
-		return nil, fmt.Errorf("could not get MCP %q: %w", mosc.Spec.MachineConfigPool.Name, err)
-	}
-	mc, err := r.mcLister.Get(mcp.Spec.Configuration.Name)
-	if err != nil {
-		return nil, fmt.Errorf("could not get MC %q: %w", mcp.Spec.Configuration.Name, err)
-	}
-
-	mosb, err := buildrequest.NewMachineOSBuild(buildrequest.MachineOSBuildOpts{
-		MachineConfig:     mc,
-		MachineOSConfig:   mosc,
-		MachineConfigPool: mcp,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not instantiate MachineOSBuild: %w", err)
-	}
-	return mosb, nil
+	return buildDesiredMOSBFromListers(mosc, r.mcpLister, r.mcLister)
 }
 
 // updateMOSCStatus sets the current build annotation and image pullspec on the MOSC.
