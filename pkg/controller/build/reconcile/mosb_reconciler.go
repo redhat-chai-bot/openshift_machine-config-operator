@@ -133,6 +133,10 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 		if apihelpers.IsMachineConfigPoolConditionTrue(mcp.Status.Conditions, mcfgv1.MachineConfigPoolImageBuildDegraded) {
 			r.events.RecordBuildRecovered(mosc)
 		}
+		// Update the parent MOSC status with the built image pullspec.
+		if err := r.updateMOSCImagePullSpec(ctx, mosc, mosb); err != nil {
+			return fmt.Errorf("could not update MOSC %q image pullspec: %w", mosc.Name, err)
+		}
 		// Clean up ephemeral ConfigMaps/Secrets created for the build.
 		// Use NewEphemeralCleaner (not NewJobImageBuildCleaner) because the
 		// job completed successfully and does not need to be stopped/deleted.
@@ -221,6 +225,42 @@ func (r *MOSBReconciler) markBuildFailed(ctx context.Context, mosb *mcfgv1.Machi
 	mosb.Status.Conditions = apihelpers.MachineOSBuildFailedConditions()
 	_, err := r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().UpdateStatus(ctx, mosb, metav1.UpdateOptions{})
 	return err
+}
+
+// updateMOSCImagePullSpec patches the parent MOSC's status with the built
+// image pullspec from the successful MOSB. This mirrors what the old
+// reconciler did in updateMachineOSConfigStatus().
+func (r *MOSBReconciler) updateMOSCImagePullSpec(ctx context.Context, mosc *mcfgv1.MachineOSConfig, mosb *mcfgv1.MachineOSBuild) error {
+	if mosb.Status.DigestedImagePushSpec == "" {
+		return nil
+	}
+
+	// Re-read the MOSC to avoid stale-write conflicts.
+	fresh, err := r.moscLister.Get(mosc.Name)
+	if err != nil {
+		return fmt.Errorf("could not re-read MOSC %q: %w", mosc.Name, err)
+	}
+	mosc = fresh.DeepCopy()
+
+	// Set the current build annotation on the MOSC metadata.
+	metav1.SetMetaDataAnnotation(&mosc.ObjectMeta, constants.CurrentMachineOSBuildAnnotationKey, mosb.Name)
+	if _, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().Update(ctx, mosc, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("could not update MOSC %q annotations: %w", mosc.Name, err)
+	}
+
+	// Update the MOSC status with the image pullspec.
+	mosc.Status.CurrentImagePullSpec = mosb.Status.DigestedImagePushSpec
+	mosc.Status.MachineOSBuild = &mcfgv1.ObjectReference{
+		Name:     mosb.Name,
+		Group:    mcfgv1.SchemeGroupVersion.Group,
+		Resource: "machineosbuilds",
+	}
+	if _, err := r.mcfgclient.MachineconfigurationV1().MachineOSConfigs().UpdateStatus(ctx, mosc, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("could not update MOSC %q status: %w", mosc.Name, err)
+	}
+
+	klog.Infof("MOSBReconciler: updated MOSC %q currentImagePullSpec to %q", mosc.Name, mosb.Status.DigestedImagePushSpec)
+	return nil
 }
 
 // isPreBuiltMOSB checks if the MOSB is a synthetic pre-built-image build.

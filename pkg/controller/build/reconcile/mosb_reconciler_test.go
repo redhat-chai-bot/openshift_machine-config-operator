@@ -66,7 +66,7 @@ func TestMOSBReconciler_TerminalSuccess(t *testing.T) {
 
 	r := &MOSBReconciler{
 		kubeclient: k8sfake.NewSimpleClientset(),
-		mcfgclient: newFakeReconcileMCFGClient(mosb),
+		mcfgclient: newFakeReconcileMCFGClient(mosb, mosc),
 		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
 		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
 		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
@@ -86,6 +86,80 @@ func TestMOSBReconciler_TerminalSuccess(t *testing.T) {
 	}
 	if !dh.wasUpdateCalled() {
 		t.Error("expected degraded handler UpdateImageBuildDegraded to be called")
+	}
+}
+
+func TestMOSBReconciler_TerminalSuccess_UpdatesMOSCImagePullSpec(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-mosc",
+			Labels: map[string]string{constants.TargetMachineConfigPoolLabelKey: "worker"},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+	}
+
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "test-mosb",
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "test-mosc",
+			},
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuildSucceeded), Status: metav1.ConditionTrue},
+			},
+			DigestedImagePushSpec: "registry.example.com/image@sha256:abc123",
+		},
+	}
+
+	mcfgclient := newFakeReconcileMCFGClient(mosb, mosc)
+	kubeclient := k8sfake.NewSimpleClientset()
+
+	r := &MOSBReconciler{
+		kubeclient: kubeclient,
+		mcfgclient: mcfgclient,
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+		degraded:   &fakeDegradedHandler{},
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+			MachineOSConfigLister:   &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+			MachineConfigPoolLister: &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		},
+	}
+
+	err := r.ReconcileMOSB(context.Background(), "test-mosb")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify the MOSC status was updated with the image pullspec.
+	updatedMOSC, err := mcfgclient.MachineconfigurationV1().MachineOSConfigs().Get(context.Background(), "test-mosc", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("could not get updated MOSC: %v", err)
+	}
+	if updatedMOSC.Status.CurrentImagePullSpec != "registry.example.com/image@sha256:abc123" {
+		t.Errorf("expected MOSC currentImagePullSpec %q, got %q",
+			"registry.example.com/image@sha256:abc123", updatedMOSC.Status.CurrentImagePullSpec)
+	}
+	if updatedMOSC.Status.MachineOSBuild == nil || updatedMOSC.Status.MachineOSBuild.Name != "test-mosb" {
+		t.Errorf("expected MOSC status.machineOSBuild.name %q, got %+v", "test-mosb", updatedMOSC.Status.MachineOSBuild)
+	}
+	// Verify the current build annotation was set.
+	if updatedMOSC.Annotations[constants.CurrentMachineOSBuildAnnotationKey] != "test-mosb" {
+		t.Errorf("expected current build annotation %q, got %q",
+			"test-mosb", updatedMOSC.Annotations[constants.CurrentMachineOSBuildAnnotationKey])
 	}
 }
 
@@ -194,7 +268,7 @@ func TestMOSBReconciler_TerminalSuccess_CleansEphemeralObjects(t *testing.T) {
 	}
 
 	kubeclient := k8sfake.NewSimpleClientset()
-	mcfgclient := newFakeReconcileMCFGClient(mosb)
+	mcfgclient := newFakeReconcileMCFGClient(mosb, mosc)
 
 	dh := &fakeDegradedHandler{}
 	r := &MOSBReconciler{
@@ -264,7 +338,7 @@ func TestMOSBReconciler_TerminalSuccess_WithDegradedRecovery(t *testing.T) {
 	dh := &fakeDegradedHandler{}
 	r := &MOSBReconciler{
 		kubeclient: k8sfake.NewSimpleClientset(),
-		mcfgclient: newFakeReconcileMCFGClient(mosb),
+		mcfgclient: newFakeReconcileMCFGClient(mosb, mosc),
 		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
 		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
 		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
