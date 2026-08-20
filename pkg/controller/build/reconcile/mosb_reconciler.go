@@ -131,10 +131,14 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 	// reconcile to avoid emitting duplicate events.
 	alreadyHandled := mosb.Annotations != nil && mosb.Annotations[constants.TerminalHandledAnnotationKey] == constants.TrueValue
 
+	// Terminal events (BuildCompleted, BuildFailed, BuildInterrupted) are
+	// emitted exclusively by JobReconciler when it writes the status
+	// transition.  MOSBReconciler handles only side-effects unique to its
+	// view: MOSC pullspec updates, ephemeral cleanup, and degraded-status
+	// management.
 	switch {
 	case state.IsBuildFailure():
 		if !alreadyHandled {
-			r.events.RecordBuildFailed(mosb)
 			r.events.RecordBuildDegraded(mosc)
 		}
 		if err := r.markTerminalHandled(ctx, mosb); err != nil {
@@ -144,7 +148,6 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 
 	case state.IsBuildSuccess():
 		if !alreadyHandled {
-			r.events.RecordBuildCompleted(mosb, string(mosb.Status.DigestedImagePushSpec))
 			// Check if we're recovering from degraded.
 			if apihelpers.IsMachineConfigPoolConditionTrue(mcp.Status.Conditions, mcfgv1.MachineConfigPoolImageBuildDegraded) {
 				r.events.RecordBuildRecovered(mosc)
@@ -166,7 +169,6 @@ func (r *MOSBReconciler) handleTerminalState(ctx context.Context, mosb *mcfgv1.M
 
 	case state.IsBuildInterrupted():
 		if !alreadyHandled {
-			r.events.RecordBuildInterrupted(mosb, "build was interrupted, cleaning up for retry")
 			// Clean up ephemeral build objects so the next reconcile
 			// can start fresh.
 			cleaner := imagebuilder.NewEphemeralCleaner(r.kubeclient, r.mcfgclient, mosb)

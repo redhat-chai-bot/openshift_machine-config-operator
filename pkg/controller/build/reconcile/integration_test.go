@@ -273,8 +273,10 @@ func TestIntegration_MOSBTerminalFailureTriggersDegraded(t *testing.T) {
 		t.Fatalf("ReconcileMOSB failed: %v", err)
 	}
 
-	if events.count("BuildFailed") != 1 {
-		t.Errorf("expected 1 BuildFailed event, got %d", events.count("BuildFailed"))
+	// Terminal events (BuildFailed) are now emitted exclusively by
+	// JobReconciler, so MOSBReconciler should not emit them.
+	if events.count("BuildFailed") != 0 {
+		t.Errorf("expected 0 BuildFailed events from MOSBReconciler, got %d", events.count("BuildFailed"))
 	}
 	if events.count("BuildDegraded") != 1 {
 		t.Errorf("expected 1 BuildDegraded event, got %d", events.count("BuildDegraded"))
@@ -396,8 +398,9 @@ func TestIntegration_CrossControllerChain_MOSCToMOSBToPool(t *testing.T) {
 	if err := mosbReconciler.ReconcileMOSB(ctx, createdMOSB.Name); err != nil {
 		t.Fatalf("Step 2: ReconcileMOSB failed: %v", err)
 	}
-	if events.count("BuildFailed") != 1 {
-		t.Errorf("Step 2: expected BuildFailed event")
+	// Terminal events are emitted by JobReconciler only.
+	if events.count("BuildFailed") != 0 {
+		t.Errorf("Step 2: expected 0 BuildFailed events from MOSBReconciler, got %d", events.count("BuildFailed"))
 	}
 	if events.count("BuildDegraded") != 1 {
 		t.Errorf("Step 2: expected BuildDegraded event")

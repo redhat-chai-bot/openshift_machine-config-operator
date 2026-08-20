@@ -928,13 +928,17 @@ func TestTerminalEventsNotDuplicated(t *testing.T) {
 		},
 	}
 
-	// First reconcile — should emit the failed event.
+	// Terminal events (BuildFailed, BuildCompleted, BuildInterrupted) are
+	// now emitted exclusively by JobReconciler.  MOSBReconciler should
+	// emit zero terminal events on any reconcile.
+
+	// First reconcile — no terminal events from MOSBReconciler.
 	err := r.ReconcileMOSB(context.Background(), "test-mosb")
 	if err != nil {
 		t.Fatalf("first reconcile error: %v", err)
 	}
-	if events.failedCount.Load() != 1 {
-		t.Errorf("expected 1 failed event after first reconcile, got %d", events.failedCount.Load())
+	if events.failedCount.Load() != 0 {
+		t.Errorf("expected 0 failed events from MOSBReconciler, got %d", events.failedCount.Load())
 	}
 
 	// Re-read the MOSB from the fake client to get the updated annotation.
@@ -947,12 +951,12 @@ func TestTerminalEventsNotDuplicated(t *testing.T) {
 	r.mosbLister = &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{updated}}
 	r.utilListers.MachineOSBuildLister = r.mosbLister
 
-	// Second reconcile — should NOT emit the failed event again.
+	// Second reconcile — still zero terminal events.
 	err = r.ReconcileMOSB(context.Background(), "test-mosb")
 	if err != nil {
 		t.Fatalf("second reconcile error: %v", err)
 	}
-	if events.failedCount.Load() != 1 {
-		t.Errorf("expected 1 failed event after second reconcile (no duplicate), got %d", events.failedCount.Load())
+	if events.failedCount.Load() != 0 {
+		t.Errorf("expected 0 failed events from MOSBReconciler, got %d", events.failedCount.Load())
 	}
 }

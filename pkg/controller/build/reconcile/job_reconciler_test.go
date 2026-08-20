@@ -369,3 +369,118 @@ func TestJobReconciler_FullDispatch_WithBuilder(t *testing.T) {
 		t.Logf("ReconcileJob error (expected from observer): %v", err)
 	}
 }
+
+// TestJobReconciler_EmitsExactlyOneCompletedEvent verifies that a single
+// build success emits exactly one BuildCompleted event and that a
+// duplicate reconcile (terminal→terminal) emits zero additional events.
+func TestJobReconciler_EmitsExactlyOneCompletedEvent(t *testing.T) {
+	poolName := "worker"
+	moscName := "test-mosc"
+	mosbName := "test-mosb"
+	mcName := "rendered-worker-abc"
+
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   moscName,
+			Labels: map[string]string{constants.TargetMachineConfigPoolLabelKey: poolName},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:     mcfgv1.MachineConfigPoolReference{Name: poolName},
+			RenderedImagePushSpec: "registry.example.com/ocp:latest",
+		},
+	}
+
+	jobUID := types.UID("job-uid-completed")
+
+	// MOSB starts in building state — the next reconcile will transition
+	// it to succeeded.
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: mosbName,
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: poolName,
+				constants.MachineOSConfigNameLabelKey:     moscName,
+			},
+			Annotations: map[string]string{
+				constants.JobUIDAnnotationKey: string(jobUID),
+			},
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuilding), Status: metav1.ConditionTrue},
+			},
+		},
+	}
+
+	// Job that reports success (Succeeded >= 1).
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "build-job",
+			Namespace: "openshift-machine-config-operator",
+			Labels:    buildJobLabels(moscName, mosbName, poolName, mcName),
+			UID:       jobUID,
+		},
+		Status: batchv1.JobStatus{
+			Succeeded: 1,
+		},
+	}
+
+	// Create the digest ConfigMap so the observer can compute succeeded status.
+	digestCMName := "digest-" + mosbName
+	digestCM := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      digestCMName,
+			Namespace: "openshift-machine-config-operator",
+		},
+		Data: map[string]string{
+			"digest": "sha256:e1992921cba73d9e74e46142eca5946df8a895bfd4419fc8b5c6422d5e7192e6",
+		},
+	}
+
+	moscLister := &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}}
+	mosbLister := &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}}
+	mcpLister := &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{
+		{ObjectMeta: metav1.ObjectMeta{Name: poolName}},
+	}}
+	kubeclient := k8sfake.NewSimpleClientset(digestCM)
+	mcfgclient := fakeclientmachineconfiguration.NewSimpleClientset(mosb)
+
+	events := newCountingEventRecorder()
+
+	r := &JobReconciler{
+		kubeclient: kubeclient,
+		mcfgclient: mcfgclient,
+		jobLister:  &fakeJobLister{items: []*batchv1.Job{job}},
+		mosbLister: mosbLister,
+		moscLister: moscLister,
+		events:     events,
+		metrics:    services.NewNoopMetricsRecorder(),
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    mosbLister,
+			MachineOSConfigLister:   moscLister,
+			MachineConfigPoolLister: mcpLister,
+		},
+	}
+
+	// First reconcile: building→succeeded should emit exactly 1 event.
+	err := r.mapJobStatusToBuildStatus(context.Background(), mosb, job)
+	if err != nil {
+		t.Fatalf("mapJobStatusToBuildStatus error: %v", err)
+	}
+
+	if events.completedCount.Load() != 1 {
+		t.Errorf("expected exactly 1 BuildCompleted event, got %d", events.completedCount.Load())
+	}
+
+	// Second reconcile with the MOSB already in succeeded state should
+	// be rejected by the guard (terminal→terminal) with zero new events.
+	preCount := events.completedCount.Load()
+	err = r.mapJobStatusToBuildStatus(context.Background(), mosb, job)
+	if err != nil {
+		t.Logf("second reconcile error (expected): %v", err)
+	}
+	if events.completedCount.Load() != preCount {
+		t.Errorf("expected no additional events on duplicate reconcile, got %d new",
+			events.completedCount.Load()-preCount)
+	}
+}

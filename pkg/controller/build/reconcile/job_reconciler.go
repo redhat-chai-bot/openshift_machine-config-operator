@@ -132,45 +132,44 @@ func (r *JobReconciler) mapJobStatusToBuildStatus(ctx context.Context, mosb *mcf
 	desiredMOSB.Status = desiredStatus
 	desiredState := ctrlcommon.NewMachineOSBuildState(desiredMOSB)
 
-	needsUpdate := false
+	// Identify the state transition (if any).
+	toBuilding := !currentState.IsBuilding() && desiredState.IsBuilding()
+	toSuccess := !currentState.IsBuildSuccess() && desiredState.IsBuildSuccess()
+	toFailure := !currentState.IsBuildFailure() && desiredState.IsBuildFailure()
+	toInterrupted := !currentState.IsBuildInterrupted() && desiredState.IsBuildInterrupted()
 
-	// Transition: → building
-	if !currentState.IsBuilding() && desiredState.IsBuilding() {
-		r.events.RecordBuildBuilding(mosb)
-		r.metrics.RecordBuildBuilding(mosc.Spec.MachineConfigPool.Name)
-		needsUpdate = true
-	}
-
-	// Transition: → success
-	if !currentState.IsBuildSuccess() && desiredState.IsBuildSuccess() {
-		r.events.RecordBuildCompleted(mosb, string(desiredStatus.DigestedImagePushSpec))
-		r.metrics.RecordBuildCompleted(mosc.Spec.MachineConfigPool.Name, mosb.CreationTimestamp.Time)
-		needsUpdate = true
-	}
-
-	// Transition: → failure
-	if !currentState.IsBuildFailure() && desiredState.IsBuildFailure() {
-		r.events.RecordBuildFailed(mosb)
-		r.metrics.RecordBuildFailed(mosc.Spec.MachineConfigPool.Name, mosb.CreationTimestamp.Time)
-		needsUpdate = true
-	}
-
-	// Transition: → interrupted
-	if !currentState.IsBuildInterrupted() && desiredState.IsBuildInterrupted() {
-		r.metrics.RecordBuildInterrupted(mosc.Spec.MachineConfigPool.Name)
-		needsUpdate = true
-	}
-
-	if !needsUpdate {
+	if !toBuilding && !toSuccess && !toFailure && !toInterrupted {
 		return nil
 	}
 
-	// Final guard: use the state-machine check to prevent redundant or
+	// Guard: use the state-machine check to prevent redundant or
 	// invalid MOSB status writes (e.g., duplicate job events, terminal→terminal).
+	// Events and metrics are emitted only AFTER the guard confirms the
+	// status write will proceed, making JobReconciler the sole authority
+	// for terminal-event emission.
 	updateNeeded, reason := IsMachineOSBuildStatusUpdateNeeded(mosb.Status, desiredStatus)
 	logStatusGuardResult(mosb.Name, updateNeeded, reason)
 	if !updateNeeded {
 		return nil
+	}
+
+	poolName := mosc.Spec.MachineConfigPool.Name
+
+	if toBuilding {
+		r.events.RecordBuildBuilding(mosb)
+		r.metrics.RecordBuildBuilding(poolName)
+	}
+	if toSuccess {
+		r.events.RecordBuildCompleted(mosb, string(desiredStatus.DigestedImagePushSpec))
+		r.metrics.RecordBuildCompleted(poolName, mosb.CreationTimestamp.Time)
+	}
+	if toFailure {
+		r.events.RecordBuildFailed(mosb)
+		r.metrics.RecordBuildFailed(poolName, mosb.CreationTimestamp.Time)
+	}
+	if toInterrupted {
+		r.events.RecordBuildInterrupted(mosb, "build was interrupted")
+		r.metrics.RecordBuildInterrupted(poolName)
 	}
 
 	mosb.Status = desiredStatus
