@@ -1,12 +1,12 @@
 package constants
 
 // Label that associates any objects with on-cluster layering. Should be added
-// to every object that BuildController creates or manages, ephemeral or not.
+// to every object that Controller creates or manages, ephemeral or not.
 const (
 	OnClusterLayeringLabelKey = "machineconfiguration.openshift.io/on-cluster-layering"
 )
 
-// Labels added to all ephemeral build objects the BuildController creates.
+// Labels added to all ephemeral build objects the Controller creates.
 const (
 	EphemeralBuildObjectLabelKey    = "machineconfiguration.openshift.io/ephemeral-build-object"
 	RenderedMachineConfigLabelKey   = "machineconfiguration.openshift.io/rendered-machine-config"
@@ -25,7 +25,7 @@ const (
 	TrueValue = "true"
 )
 
-// Annotations added to all ephemeral build objects BuildController creates.
+// Annotations added to all ephemeral build objects Controller creates.
 const (
 	MachineOSBuildNameAnnotationKey      = "machineconfiguration.openshift.io/machine-os-build"
 	MachineOSConfigNameAnnotationKey     = "machineconfiguration.openshift.io/machine-os-config"

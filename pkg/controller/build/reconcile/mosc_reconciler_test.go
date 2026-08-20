@@ -2,16 +2,18 @@ package reconcile
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/containers/image/v5/types"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	fakemcfgclient "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
+	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -211,5 +213,685 @@ func TestIsMOSBCurrentForMOSC(t *testing.T) {
 	}
 	if isMOSBCurrentForMOSC(mosc, &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-2"}}) {
 		t.Error("expected false for non-matching build")
+	}
+}
+
+func TestUpdateMOSCStatus(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosb-1"},
+		Status: mcfgv1.MachineOSBuildStatus{
+			DigestedImagePushSpec: "image@sha256:abc",
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(mosc)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.updateMOSCStatus(context.Background(), mosc, mosb)
+	if err != nil {
+		t.Fatalf("updateMOSCStatus error: %v", err)
+	}
+}
+
+func TestEnsureBuildExists_AlreadyCurrent(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.CurrentMachineOSBuildAnnotationKey: "existing-mosb",
+			},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "existing-mosb",
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "mosc-1",
+			},
+		},
+	}
+
+	r := &MOSCReconciler{
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{mosb}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("expected no error when build already exists, got: %v", err)
+	}
+}
+
+func TestEnsureBuildExists_SeedingPending(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.PreBuiltImageAnnotationKey: "image:latest",
+			},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+
+	fakeSeeder := services.NewSeeder(nil, nil, nil, nil)
+	r := &MOSCReconciler{
+		mosbLister: &fakeMOSBListerForSelector{items: nil},
+		seeder:     fakeSeeder,
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("expected no error when seeding pending, got: %v", err)
+	}
+}
+
+func TestEnsureBuildExists_CreateNew(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset()
+	fakeSeeder := services.NewSeeder(nil, nil, nil, nil)
+	fakeReuse := &fakeReuseChecker{}
+
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mosbLister: &fakeMOSBListerForSelector{items: nil},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		seeder:     fakeSeeder,
+		reuse:      fakeReuse,
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("ensureBuildExists error: %v", err)
+	}
+}
+
+
+func TestHandleRebuild(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.RebuildMachineOSConfigAnnotationKey:    "true",
+				constants.CurrentMachineOSBuildAnnotationKey: "old-build",
+			},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(mosc)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mosbLister: &fakeMOSBListerForSelector{items: nil},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		seeder:     services.NewSeeder(nil, nil, nil, nil),
+		reuse:      &fakeReuseChecker{},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.handleRebuild(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("handleRebuild error: %v", err)
+	}
+
+	// handleRebuild should create a new MOSB (the old one was deleted).
+	mosbList, err := client.MachineconfigurationV1().MachineOSBuilds().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("list MOSBs: %v", err)
+	}
+	if len(mosbList.Items) == 0 {
+		t.Error("expected at least one MOSB to be created by handleRebuild")
+	}
+}
+
+func TestEnsureBuildExists_ReusePath(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+
+	// Build the expected MOSB name by generating it
+	expectedMOSBName := "mosc-1-b4aa8faa5f63ec669c27bdf69eecefcd" // from prior test run
+	existingMOSB := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: expectedMOSBName,
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "mosc-1",
+			},
+		},
+		Status: mcfgv1.MachineOSBuildStatus{
+			Conditions: []metav1.Condition{
+				{Type: string(mcfgv1.MachineOSBuildSucceeded), Status: metav1.ConditionTrue},
+			},
+			DigestedImagePushSpec: "image@sha256:abc",
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(mosc)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{existingMOSB}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		seeder:     services.NewSeeder(nil, nil, nil, nil),
+		reuse:      &fakeReuseChecker{result: services.ImageReuseResult{CanReuse: true}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("ensureBuildExists error: %v", err)
+	}
+}
+
+func TestEnsureBuildExists_ReuseNeedsRebuild(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+
+	expectedMOSBName := "mosc-1-b4aa8faa5f63ec669c27bdf69eecefcd"
+	existingMOSB := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: expectedMOSBName,
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "mosc-1",
+			},
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(existingMOSB)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{existingMOSB}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		seeder:     services.NewSeeder(nil, nil, nil, nil),
+		reuse:      &fakeReuseChecker{result: services.ImageReuseResult{NeedsRebuild: true}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("ensureBuildExists error: %v", err)
+	}
+}
+
+func TestCleanupPreBuiltAnnotation(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.PreBuiltImageAnnotationKey:         "image:v1",
+				constants.CurrentMachineOSBuildAnnotationKey: "mosb-1",
+			},
+		},
+		Status: mcfgv1.MachineOSConfigStatus{
+			CurrentImagePullSpec: "image@sha256:abc",
+		},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(mosc)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		events:     services.NewNoopEventRecorder(),
+	}
+
+	err := r.cleanupPreBuiltAnnotation(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("cleanupPreBuiltAnnotation error: %v", err)
+	}
+
+	updated, err := client.MachineconfigurationV1().MachineOSConfigs().Get(context.Background(), "mosc-1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get mosc: %v", err)
+	}
+	if _, has := updated.Annotations[constants.PreBuiltImageAnnotationKey]; has {
+		t.Error("expected pre-built annotation to be removed")
+	}
+}
+
+func TestEnsureBuildExists_ListError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+
+	errLister := &errorMOSBLister{err: fmt.Errorf("lister error")}
+	r := &MOSCReconciler{
+		mosbLister: errLister,
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err == nil {
+		t.Fatal("expected error from lister failure")
+	}
+}
+
+// errorMOSBLister always returns an error.
+type errorMOSBLister struct {
+	err error
+}
+
+func (e *errorMOSBLister) List(_ labels.Selector) ([]*mcfgv1.MachineOSBuild, error) {
+	return nil, e.err
+}
+
+func (e *errorMOSBLister) Get(_ string) (*mcfgv1.MachineOSBuild, error) {
+	return nil, e.err
+}
+
+func TestReconcileMOSC_GetError(t *testing.T) {
+	r := &MOSCReconciler{
+		moscLister: &errorMOSCListerRec{err: fmt.Errorf("lister broken")},
+	}
+	err := r.ReconcileMOSC(context.Background(), "test-mosc")
+	if err == nil {
+		t.Fatal("expected error from lister failure")
+	}
+}
+
+// errorMOSCListerRec always returns a non-NotFound error.
+type errorMOSCListerRec struct {
+	err error
+}
+
+func (e *errorMOSCListerRec) List(_ labels.Selector) ([]*mcfgv1.MachineOSConfig, error) {
+	return nil, e.err
+}
+func (e *errorMOSCListerRec) Get(_ string) (*mcfgv1.MachineOSConfig, error) {
+	return nil, e.err
+}
+
+func TestCleanupPreBuiltAnnotation_UpdateError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.PreBuiltImageAnnotationKey: "image:v1",
+			},
+		},
+	}
+
+	// Don't pre-create the mosc in the fake client → Update will return NotFound
+	client := fakemcfgclient.NewSimpleClientset()
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		events:     services.NewNoopEventRecorder(),
+	}
+
+	err := r.cleanupPreBuiltAnnotation(context.Background(), mosc)
+	if err == nil {
+		t.Fatal("expected error from Update on non-existent MOSC")
+	}
+}
+
+func TestHandleRebuild_NoBuildAnnotation(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.RebuildMachineOSConfigAnnotationKey: "true",
+				// No CurrentMachineOSBuildAnnotationKey
+			},
+		},
+	}
+
+	r := &MOSCReconciler{}
+
+	err := r.handleRebuild(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("expected nil for missing current build annotation, got: %v", err)
+	}
+}
+
+func TestEnsureBuildExists_ReuseEvaluateError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+	expectedMOSBName := "mosc-1-b4aa8faa5f63ec669c27bdf69eecefcd"
+	existingMOSB := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: expectedMOSBName,
+			Labels: map[string]string{
+				constants.TargetMachineConfigPoolLabelKey: "worker",
+				constants.MachineOSConfigNameLabelKey:     "mosc-1",
+			},
+		},
+	}
+
+	r := &MOSCReconciler{
+		mosbLister: &fakeMOSBListerForSelector{items: []*mcfgv1.MachineOSBuild{existingMOSB}},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		seeder:     services.NewSeeder(nil, nil, nil, nil),
+		reuse:      &fakeReuseChecker{err: fmt.Errorf("reuse check failed")},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err == nil {
+		t.Fatal("expected error from reuse evaluation failure")
+	}
+}
+
+func TestEnsureBuildExists_DesiredMOSBError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "missing-pool"},
+		},
+	}
+
+	r := &MOSCReconciler{
+		mosbLister: &fakeMOSBListerForSelector{items: nil},
+		mcpLister:  &fakeMCPListerForSelector{items: nil},
+		seeder:     services.NewSeeder(nil, nil, nil, nil),
+	}
+
+	err := r.ensureBuildExists(context.Background(), mosc)
+	if err == nil {
+		t.Fatal("expected error when MCP not found for desired MOSB")
+	}
+}
+
+func TestCreateMachineOSBuild_AlreadyExists(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+
+	// Pre-create the expected MOSB name to trigger AlreadyExists.
+	expectedMOSBName := "mosc-1-b4aa8faa5f63ec669c27bdf69eecefcd"
+	existingMOSB := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: expectedMOSBName},
+	}
+
+	client := fakemcfgclient.NewSimpleClientset(existingMOSB)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.createMachineOSBuild(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("expected nil for AlreadyExists, got: %v", err)
+	}
+}
+
+func TestHandleRebuild_DeleteError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mosc-1",
+			Annotations: map[string]string{
+				constants.CurrentMachineOSBuildAnnotationKey: "build-that-exists",
+			},
+		},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool:    mcfgv1.MachineConfigPoolReference{Name: "worker"},
+			RenderedImagePushSpec: "registry.example.com/image",
+		},
+	}
+	mc := &mcfgv1.MachineConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rendered-worker-abc",
+			Annotations: map[string]string{
+				ctrlcommon.ReleaseImageVersionAnnotationKey:           "4.19.0",
+				ctrlcommon.GeneratedByControllerVersionAnnotationKey: "4.19.0",
+			},
+		},
+	}
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "rendered-worker-abc"},
+			},
+		},
+	}
+
+	// Create client WITHOUT the build → Delete returns NotFound (which is tolerated).
+	client := fakemcfgclient.NewSimpleClientset(mosc)
+	r := &MOSCReconciler{
+		mcfgclient: client,
+		moscLister: &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}},
+		mosbLister: &fakeMOSBListerForSelector{items: nil},
+		mcpLister:  &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:   &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}},
+		seeder:     services.NewSeeder(nil, nil, nil, nil),
+		reuse:      &fakeReuseChecker{},
+		events:     services.NewNoopEventRecorder(),
+		metrics:    services.NewNoopMetricsRecorder(),
+	}
+
+	err := r.handleRebuild(context.Background(), mosc)
+	if err != nil {
+		t.Fatalf("handleRebuild error: %v", err)
+	}
+}
+
+func TestUpdateMOSCStatus_ListerError(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "missing-mosc"},
+	}
+	mosb := &mcfgv1.MachineOSBuild{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosb-1"},
+	}
+
+	r := &MOSCReconciler{
+		moscLister: &fakeMOSCListerForSelector{items: nil},
+	}
+
+	err := r.updateMOSCStatus(context.Background(), mosc, mosb)
+	if err == nil {
+		t.Fatal("expected error for missing MOSC in lister")
+	}
+}
+
+func TestBuildDesiredMOSB_MCPNotFound(t *testing.T) {
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "missing"},
+		},
+	}
+
+	r := &MOSCReconciler{
+		mcpLister: &fakeMCPListerForSelector{items: nil},
+	}
+
+	_, err := r.buildDesiredMOSB(mosc)
+	if err == nil {
+		t.Fatal("expected error for missing MCP")
+	}
+}
+
+func TestBuildDesiredMOSB_MCNotFound(t *testing.T) {
+	mcp := &mcfgv1.MachineConfigPool{
+		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
+		Spec: mcfgv1.MachineConfigPoolSpec{
+			Configuration: mcfgv1.MachineConfigPoolStatusConfiguration{
+				ObjectReference: corev1.ObjectReference{Name: "missing-mc"},
+			},
+		},
+	}
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "mosc-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+
+	r := &MOSCReconciler{
+		mcpLister: &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}},
+		mcLister:  &fakeMCListerForSelector{items: nil},
+	}
+
+	_, err := r.buildDesiredMOSB(mosc)
+	if err == nil {
+		t.Fatal("expected error for missing MC")
 	}
 }

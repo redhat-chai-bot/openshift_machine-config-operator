@@ -58,13 +58,13 @@ func (f *fakeReconciler) getCalls(method string) []string {
 	return out
 }
 
-// TestNewBuildController verifies basic construction.
-func TestNewBuildController(t *testing.T) {
+// TestNewController verifies basic construction.
+func TestNewController(t *testing.T) {
 	r := newFakeReconciler()
 
-	bc := NewBuildController(r, &informers{}, &listers{}, defaultConfig())
+	bc := NewController(r, &informers{}, &listers{}, defaultConfig())
 	if bc == nil {
-		t.Fatal("NewBuildController returned nil")
+		t.Fatal("NewController returned nil")
 	}
 	if bc.moscQueue == nil || bc.mosbQueue == nil || bc.mcpQueue == nil || bc.jobQueue == nil {
 		t.Fatal("one or more workqueues is nil")
@@ -74,10 +74,10 @@ func TestNewBuildController(t *testing.T) {
 	}
 }
 
-// TestBuildControllerWithClock verifies clock injection.
-func TestBuildControllerWithClock(t *testing.T) {
+// TestControllerWithClock verifies clock injection.
+func TestControllerWithClock(t *testing.T) {
 	fakeClock := clocktesting.NewFakeClock(time.Now())
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig(), WithClock(fakeClock))
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig(), WithClock(fakeClock))
 
 	if bc.clock != fakeClock {
 		t.Error("custom clock was not injected")
@@ -86,7 +86,7 @@ func TestBuildControllerWithClock(t *testing.T) {
 
 // TestEnqueueMOSC verifies that enqueueMOSC extracts the correct key.
 func TestEnqueueMOSC(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mosc"},
@@ -106,7 +106,7 @@ func TestEnqueueMOSC(t *testing.T) {
 
 // TestEnqueueMOSB verifies that enqueueMOSB extracts the correct key.
 func TestEnqueueMOSB(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mosb := &mcfgv1.MachineOSBuild{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mosb"},
@@ -126,7 +126,7 @@ func TestEnqueueMOSB(t *testing.T) {
 
 // TestEnqueueMCP verifies that enqueueMCP extracts the correct key.
 func TestEnqueueMCP(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mcp := &mcfgv1.MachineConfigPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
@@ -146,7 +146,7 @@ func TestEnqueueMCP(t *testing.T) {
 
 // TestEnqueueJob verifies that enqueueJob extracts the namespace/name key.
 func TestEnqueueJob(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -170,7 +170,7 @@ func TestEnqueueJob(t *testing.T) {
 
 // TestHandleDeleteWithTombstone verifies tombstone handling in delete handlers.
 func TestHandleDeleteWithTombstone(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	// Simulate a tombstone wrapping a MOSC.
 	mosc := &mcfgv1.MachineOSConfig{
@@ -196,7 +196,7 @@ func TestHandleDeleteWithTombstone(t *testing.T) {
 
 // TestHandleDeleteMCPWithTombstone verifies the MCP delete handler (new in WS2).
 func TestHandleDeleteMCPWithTombstone(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mcp := &mcfgv1.MachineConfigPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
@@ -222,7 +222,7 @@ func TestHandleDeleteMCPWithTombstone(t *testing.T) {
 // TestProcessQueueCallsReconciler verifies the queue→reconciler dispatch path.
 func TestProcessQueueCallsReconciler(t *testing.T) {
 	r := newFakeReconciler()
-	bc := NewBuildController(r, &informers{}, &listers{}, defaultConfig())
+	bc := NewController(r, &informers{}, &listers{}, defaultConfig())
 
 	// Enqueue a key and process it.
 	bc.moscQueue.Add("my-mosc")
@@ -241,7 +241,7 @@ func TestProcessQueueRetries(t *testing.T) {
 
 	callCount := 0
 	failingReconciler := newFakeReconciler()
-	bc := NewBuildController(failingReconciler, &informers{}, &listers{}, cfg)
+	bc := NewController(failingReconciler, &informers{}, &listers{}, cfg)
 
 	// Create a handler that always fails.
 	handler := func(_ context.Context, key string) error {
@@ -264,7 +264,7 @@ func TestProcessQueueRetries(t *testing.T) {
 
 // TestShutdownChan verifies the shutdown channel closes after shutdown.
 func TestShutdownChan(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	// ShutdownChan should not be closed initially.
 	select {
@@ -277,7 +277,7 @@ func TestShutdownChan(t *testing.T) {
 // TestMultipleQueuesIndependent verifies that enqueuing on one queue does not
 // affect others.
 func TestMultipleQueuesIndependent(t *testing.T) {
-	bc := NewBuildController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	bc.moscQueue.Add("mosc-key")
 	bc.mosbQueue.Add("mosb-key")

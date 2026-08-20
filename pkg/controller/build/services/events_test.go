@@ -159,6 +159,159 @@ func TestRecordPoolConfigChanged(t *testing.T) {
 	}
 }
 
+func TestRecordBuildPreparing(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	r.RecordBuildPreparing(mosb, "gathering configs")
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Preparing build: gathering configs", EventBuildPreparing); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordBuildBuilding(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	r.RecordBuildBuilding(mosb)
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build is now in progress", EventBuildBuilding); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordBuildCompleted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	r.RecordBuildCompleted(mosb, "registry.example.com/image@sha256:abc")
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build completed successfully, image: registry.example.com/image@sha256:abc", EventBuildCompleted); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestEventRecordBuildInterrupted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	r.RecordBuildInterrupted(mosb, "config changed")
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Warning %s Build interrupted: config changed", EventBuildInterrupted); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordBuildDeleted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	r.RecordBuildDeleted(mosb, "superseded")
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build deleted: superseded", EventBuildDeleted); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordJobStarted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-1"}}
+	r.RecordJobStarted(mosb, job)
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build job started: job-1", EventJobStarted); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordJobCompleted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-1"}}
+	r.RecordJobCompleted(mosb, job)
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build job completed: job-1", EventJobCompleted); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordJobFailed(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job-1"}}
+	r.RecordJobFailed(mosb, job)
+	event := <-fakeRecorder.Events
+	expected := fmt.Sprintf("Warning %s Build job %q failed; see MachineOSBuild %q status conditions for details", EventJobFailed, "job-1", "build-1")
+	if event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordJobDeleted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosb := &mcfgv1.MachineOSBuild{ObjectMeta: metav1.ObjectMeta{Name: "build-1"}}
+	r.RecordJobDeleted(mosb, "old-job")
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build job deleted: old-job", EventJobDeleted); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordConfigReconcileFailed(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosc := &mcfgv1.MachineOSConfig{ObjectMeta: metav1.ObjectMeta{Name: "cfg-1"}}
+	r.RecordConfigReconcileFailed(mosc, fmt.Errorf("bad config"))
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Warning %s Failed to reconcile MachineOSConfig spec change: bad config", EventConfigReconcileFailed); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordRebuildRequested(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosc := &mcfgv1.MachineOSConfig{ObjectMeta: metav1.ObjectMeta{Name: "cfg-1"}}
+	r.RecordRebuildRequested(mosc, "user annotation")
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Rebuild requested: user annotation", EventRebuildRequested); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordConfigDeleted(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosc := &mcfgv1.MachineOSConfig{ObjectMeta: metav1.ObjectMeta{Name: "cfg-1"}}
+	r.RecordConfigDeleted(mosc)
+	event := <-fakeRecorder.Events
+	expected := fmt.Sprintf("Normal %s MachineOSConfig %q deleted, removing associated builds", EventConfigDeleted, "cfg-1")
+	if event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
+func TestRecordBuildRecovered(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(10)
+	r := NewEventRecorder(fakeRecorder)
+	mosc := &mcfgv1.MachineOSConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: "cfg-1"},
+		Spec: mcfgv1.MachineOSConfigSpec{
+			MachineConfigPool: mcfgv1.MachineConfigPoolReference{Name: "worker"},
+		},
+	}
+	r.RecordBuildRecovered(mosc)
+	event := <-fakeRecorder.Events
+	if expected := fmt.Sprintf("Normal %s Build for pool %q recovered from degraded state", EventBuildRecovered, "worker"); event != expected {
+		t.Errorf("got %q, want %q", event, expected)
+	}
+}
+
 // TestNoopEventRecorder verifies that all methods can be called without panic.
 func TestNoopEventRecorder(t *testing.T) {
 	r := NewNoopEventRecorder()

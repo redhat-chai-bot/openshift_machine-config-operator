@@ -245,11 +245,10 @@ func hasRebuildAnnotation(mosc *mcfgv1.MachineOSConfig) bool {
 	return metav1.HasAnnotation(mosc.ObjectMeta, constants.RebuildMachineOSConfigAnnotationKey)
 }
 
-// getPreBuiltImage returns the pre-built image from a MachineOSConfig's annotations.
-// Returns the image string and a boolean indicating if it exists and is non-empty.
-func getPreBuiltImage(mosc *mcfgv1.MachineOSConfig) (string, bool) {
+// hasPreBuiltImage reports whether a MachineOSConfig has a non-empty pre-built image annotation.
+func hasPreBuiltImage(mosc *mcfgv1.MachineOSConfig) bool {
 	image, exists := mosc.Annotations[constants.PreBuiltImageAnnotationKey]
-	return image, exists && image != ""
+	return exists && image != ""
 }
 
 // shouldSeedWithPreBuiltImage determines if a MachineOSConfig should be seeded
@@ -261,8 +260,7 @@ func getPreBuiltImage(mosc *mcfgv1.MachineOSConfig) (string, bool) {
 // workflow should handle it. Seeding is considered complete once the
 // currentBuild annotation is set.
 func shouldSeedWithPreBuiltImage(mosc *mcfgv1.MachineOSConfig) bool {
-	_, hasImage := getPreBuiltImage(mosc)
-	return hasImage && !hasCurrentBuildAnnotation(mosc)
+	return hasPreBuiltImage(mosc) && !hasCurrentBuildAnnotation(mosc)
 }
 
 // needsPreBuiltImageAnnotationCleanup determines if a MOSC has completed seeding and
@@ -272,10 +270,9 @@ func shouldSeedWithPreBuiltImage(mosc *mcfgv1.MachineOSConfig) bool {
 // - The MOSC status has been populated with CurrentImagePullSpec
 // - The MOSC still has the PreBuiltImageAnnotationKey (needs cleanup)
 func needsPreBuiltImageAnnotationCleanup(mosc *mcfgv1.MachineOSConfig) bool {
-	_, hasImage := getPreBuiltImage(mosc)
 	return hasCurrentBuildAnnotation(mosc) &&
 		mosc.Status.CurrentImagePullSpec != "" &&
-		hasImage
+		hasPreBuiltImage(mosc)
 }
 
 // Looks at the error chain for the given error and determines if the error
@@ -322,10 +319,11 @@ func extractNSAndNameWithTag(imageRef string) (string, string, error) {
 
 	// Re-append tag or digest to the name portion.
 	nameWithTag := parts[1]
-	if tagged, ok := named.(reference.Tagged); ok {
-		nameWithTag = parts[1] + ":" + tagged.Tag()
-	} else if digested, ok := named.(reference.Digested); ok {
-		nameWithTag = parts[1] + "@" + digested.Digest().String()
+	switch v := named.(type) {
+	case reference.Tagged:
+		nameWithTag = parts[1] + ":" + v.Tag()
+	case reference.Digested:
+		nameWithTag = parts[1] + "@" + v.Digest().String()
 	}
 
 	return ns, nameWithTag, nil

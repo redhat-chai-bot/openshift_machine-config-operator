@@ -30,7 +30,7 @@ GOTAGS = "$(TAGS)"
 
 all: binaries
 
-.PHONY: clean test test-unit test-e2e verify update update-amis install-tools
+.PHONY: clean test test-unit test-unit-build-race test-e2e verify update update-amis install-tools
 
 # Remove build artifaces
 # Example:
@@ -63,6 +63,24 @@ test: test-unit test-e2e
 # Unit tests only (no active cluster required)
 test-unit: install-go-junit-report
 	./hack/test-unit.sh $(@) $(GOTAGS)
+
+# Build controller unit tests with race detector, repetition, and coverage.
+# Runs all packages under ./pkg/controller/build/... with -race and -count=5.
+# When ARTIFACT_DIR is set, a coverage profile is also collected.
+test-unit-build-race:
+	@echo "Running build controller tests with race detector and repetition..."
+	$(eval BUILD_COVER_PROFILE := build-controller-coverage.out)
+	$(eval BUILD_TEST_FLAGS := -v -race -count=5 -tags=$(GOTAGS))
+	$(eval BUILD_TEST_PKGS := ./pkg/controller/build/...)
+	@if [ -n "$(ARTIFACT_DIR)" ]; then \
+		go test $(BUILD_TEST_FLAGS) -coverprofile=$(BUILD_COVER_PROFILE) $(BUILD_TEST_PKGS) && \
+		echo "Coverage report:" && \
+		go tool cover -func=$(BUILD_COVER_PROFILE) | tail -1 && \
+		go tool cover -html=$(BUILD_COVER_PROFILE) -o $(BUILD_COVER_PROFILE:.out=.html) && \
+		mv $(BUILD_COVER_PROFILE) $(BUILD_COVER_PROFILE:.out=.html) "$(ARTIFACT_DIR)"; \
+	else \
+		go test $(BUILD_TEST_FLAGS) $(BUILD_TEST_PKGS); \
+	fi
 
 # Run the code generation tasks.
 # Example:

@@ -22,7 +22,7 @@ const (
 	jobQueueName  = "job"
 )
 
-// BuildController is the new key-based, multi-queue controller shell for
+// Controller is the new key-based, multi-queue controller shell for
 // On-Cluster Layering. It runs alongside the existing OSBuildController until
 // the WS6 cutover, when it will replace it.
 //
@@ -31,7 +31,7 @@ const (
 //   - Informer handlers enqueue string keys via cache.MetaNamespaceKeyFunc.
 //   - MCP DeleteFunc is wired (the old controller was missing it).
 //   - Workers dispatch to a key-based Reconciler interface.
-type BuildController struct {
+type Controller struct {
 	moscQueue workqueue.TypedRateLimitingInterface[string]
 	mosbQueue workqueue.TypedRateLimitingInterface[string]
 	mcpQueue  workqueue.TypedRateLimitingInterface[string]
@@ -50,12 +50,12 @@ type BuildController struct {
 	clock clockutil.Clock
 }
 
-// BuildControllerOption is a functional option for BuildController.
-type BuildControllerOption func(*BuildController)
+// ControllerOption is a functional option for Controller.
+type ControllerOption func(*Controller)
 
 // WithClock overrides the default real clock (useful for testing).
-func WithClock(c clockutil.Clock) BuildControllerOption {
-	return func(bc *BuildController) {
+func WithClock(c clockutil.Clock) ControllerOption {
+	return func(bc *Controller) {
 		bc.clock = c
 	}
 }
@@ -67,16 +67,16 @@ func newStringQueue(name string) workqueue.TypedRateLimitingInterface[string] {
 	return workqueue.NewTypedRateLimitingQueueWithConfig[string](rl, cfg)
 }
 
-// NewBuildController constructs a BuildController and wires informer event
+// NewController constructs a Controller and wires informer event
 // handlers. The controller is inert until Run() is called.
-func NewBuildController(
+func NewController(
 	r reconcile.Reconciler,
 	inf *informers,
 	l *listers,
 	cfg Config,
-	opts ...BuildControllerOption,
-) *BuildController {
-	bc := &BuildController{
+	opts ...ControllerOption,
+) *Controller {
+	bc := &Controller{
 		moscQueue:    newStringQueue(moscQueueName),
 		mosbQueue:    newStringQueue(mosbQueueName),
 		mcpQueue:     newStringQueue(mcpQueueName),
@@ -107,7 +107,7 @@ func NewBuildController(
 }
 
 // addInformerHandlers registers Add/Update/Delete handlers on every watched informer.
-func (bc *BuildController) addInformerHandlers() {
+func (bc *Controller) addInformerHandlers() {
 	// MachineOSConfig
 	bc.informers.machineOSConfigInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    bc.enqueueMOSC,
@@ -139,7 +139,7 @@ func (bc *BuildController) addInformerHandlers() {
 
 // --- Enqueue helpers ---
 
-func (bc *BuildController) enqueueMOSC(obj interface{}) {
+func (bc *Controller) enqueueMOSC(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for MachineOSConfig %+v: %v", obj, err))
@@ -148,7 +148,7 @@ func (bc *BuildController) enqueueMOSC(obj interface{}) {
 	bc.moscQueue.Add(key)
 }
 
-func (bc *BuildController) enqueueMOSB(obj interface{}) {
+func (bc *Controller) enqueueMOSB(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for MachineOSBuild %+v: %v", obj, err))
@@ -157,7 +157,7 @@ func (bc *BuildController) enqueueMOSB(obj interface{}) {
 	bc.mosbQueue.Add(key)
 }
 
-func (bc *BuildController) enqueueMCP(obj interface{}) {
+func (bc *Controller) enqueueMCP(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for MachineConfigPool %+v: %v", obj, err))
@@ -166,7 +166,7 @@ func (bc *BuildController) enqueueMCP(obj interface{}) {
 	bc.mcpQueue.Add(key)
 }
 
-func (bc *BuildController) enqueueJob(obj interface{}) {
+func (bc *Controller) enqueueJob(obj interface{}) {
 	key, err := cache.MetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for Job %+v: %v", obj, err))
@@ -177,7 +177,7 @@ func (bc *BuildController) enqueueJob(obj interface{}) {
 
 // --- Delete handlers with tombstone support ---
 
-func (bc *BuildController) handleDeleteMOSC(obj interface{}) {
+func (bc *Controller) handleDeleteMOSC(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for deleted MachineOSConfig: %v", err))
@@ -186,7 +186,7 @@ func (bc *BuildController) handleDeleteMOSC(obj interface{}) {
 	bc.moscQueue.Add(key)
 }
 
-func (bc *BuildController) handleDeleteMOSB(obj interface{}) {
+func (bc *Controller) handleDeleteMOSB(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for deleted MachineOSBuild: %v", err))
@@ -195,7 +195,7 @@ func (bc *BuildController) handleDeleteMOSB(obj interface{}) {
 	bc.mosbQueue.Add(key)
 }
 
-func (bc *BuildController) handleDeleteMCP(obj interface{}) {
+func (bc *Controller) handleDeleteMCP(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for deleted MachineConfigPool: %v", err))
@@ -204,7 +204,7 @@ func (bc *BuildController) handleDeleteMCP(obj interface{}) {
 	bc.mcpQueue.Add(key)
 }
 
-func (bc *BuildController) handleDeleteJob(obj interface{}) {
+func (bc *Controller) handleDeleteJob(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("could not get key for deleted Job: %v", err))
@@ -218,14 +218,14 @@ func (bc *BuildController) handleDeleteJob(obj interface{}) {
 // Run starts the controller's informers and per-queue worker goroutines.
 // It blocks until the parent context is cancelled, then performs a graceful
 // shutdown using the same detached-context pattern as the old controller.
-func (bc *BuildController) Run(parentCtx context.Context, workers int) {
-	klog.Infof("Starting BuildController")
+func (bc *Controller) Run(parentCtx context.Context, workers int) {
+	klog.Infof("Starting Controller")
 
 	// Detached context — we control shutdown timing independently of the
 	// parent's cancellation so we can drain gracefully.
 	ctrlCtx, ctrlCancel := context.WithCancel(context.Background())
 	defer func() {
-		klog.Infof("Shutting down BuildController")
+		klog.Infof("Shutting down Controller")
 		bc.shutdownController()
 		ctrlCancel()
 	}()
@@ -233,7 +233,7 @@ func (bc *BuildController) Run(parentCtx context.Context, workers int) {
 	bc.informers.start(ctrlCtx)
 
 	if !cache.WaitForCacheSync(ctrlCtx.Done(), bc.informers.hasSynced...) {
-		klog.Errorf("BuildController: caches failed to sync")
+		klog.Errorf("Controller: caches failed to sync")
 		return
 	}
 
@@ -245,7 +245,7 @@ func (bc *BuildController) Run(parentCtx context.Context, workers int) {
 		go wait.Until(bc.jobWorker(ctrlCtx), time.Second, ctrlCtx.Done())
 	}
 
-	klog.Infof("BuildController started with %d workers per queue", workers)
+	klog.Infof("Controller started with %d workers per queue", workers)
 
 	// Block until the parent signals shutdown.
 	<-parentCtx.Done()
@@ -253,17 +253,17 @@ func (bc *BuildController) Run(parentCtx context.Context, workers int) {
 
 // ShutdownChan returns a channel that is closed when the controller
 // finishes its graceful shutdown.
-func (bc *BuildController) ShutdownChan() <-chan struct{} {
+func (bc *Controller) ShutdownChan() <-chan struct{} {
 	return bc.shutdownChan
 }
 
-func (bc *BuildController) shutdownController() {
+func (bc *Controller) shutdownController() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), bc.config.MaxShutdownDelay)
 	defer shutdownCancel()
 
-	klog.Infof("BuildController: determining if a shutdown delay up to %s is required", bc.config.MaxShutdownDelay)
+	klog.Infof("Controller: determining if a shutdown delay up to %s is required", bc.config.MaxShutdownDelay)
 	if err := bc.shutdownDelayHandler.handleShutdown(shutdownCtx, bc.config.ShutdownPollInterval); err != nil {
-		klog.Warningf("BuildController: error during graceful shutdown: %s. Some objects may be orphaned.", err)
+		klog.Warningf("Controller: error during graceful shutdown: %s. Some objects may be orphaned.", err)
 	}
 
 	bc.moscQueue.ShutDown()
@@ -272,31 +272,31 @@ func (bc *BuildController) shutdownController() {
 	bc.jobQueue.ShutDown()
 
 	utilruntime.HandleCrash()
-	klog.Infof("BuildController has shut down")
+	klog.Infof("Controller has shut down")
 	close(bc.shutdownChan)
 }
 
 // --- Workers ---
 
-func (bc *BuildController) moscWorker(ctx context.Context) func() {
+func (bc *Controller) moscWorker(ctx context.Context) func() {
 	return func() { bc.processQueue(ctx, bc.moscQueue, bc.reconciler.ReconcileMOSC) }
 }
 
-func (bc *BuildController) mosbWorker(ctx context.Context) func() {
+func (bc *Controller) mosbWorker(ctx context.Context) func() {
 	return func() { bc.processQueue(ctx, bc.mosbQueue, bc.reconciler.ReconcileMOSB) }
 }
 
-func (bc *BuildController) mcpWorker(ctx context.Context) func() {
+func (bc *Controller) mcpWorker(ctx context.Context) func() {
 	return func() { bc.processQueue(ctx, bc.mcpQueue, bc.reconciler.ReconcilePool) }
 }
 
-func (bc *BuildController) jobWorker(ctx context.Context) func() {
+func (bc *Controller) jobWorker(ctx context.Context) func() {
 	return func() { bc.processQueue(ctx, bc.jobQueue, bc.reconciler.ReconcileJob) }
 }
 
 // processQueue dequeues items from the given queue and calls the handler.
 // It processes one item and returns — wait.Until calls it in a loop.
-func (bc *BuildController) processQueue(
+func (bc *Controller) processQueue(
 	ctx context.Context,
 	queue workqueue.TypedRateLimitingInterface[string],
 	handler func(context.Context, string) error,
@@ -309,12 +309,12 @@ func (bc *BuildController) processQueue(
 
 	if err := handler(ctx, key); err != nil {
 		if queue.NumRequeues(key) < bc.config.MaxRetries {
-			klog.Warningf("BuildController: error processing %q (retry %d/%d): %v",
+			klog.Warningf("Controller: error processing %q (retry %d/%d): %v",
 				key, queue.NumRequeues(key)+1, bc.config.MaxRetries, err)
 			queue.AddRateLimited(key)
 			return
 		}
-		utilruntime.HandleError(fmt.Errorf("BuildController: dropping key %q after %d retries: %v",
+		utilruntime.HandleError(fmt.Errorf("Controller: dropping key %q after %d retries: %v",
 			key, bc.config.MaxRetries, err))
 		queue.Forget(key)
 		return

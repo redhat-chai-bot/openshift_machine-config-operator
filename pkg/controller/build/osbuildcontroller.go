@@ -24,10 +24,10 @@ import (
 )
 
 // OSBuildController is the public entry point for the On-Cluster Layering
-// build controller. It delegates to BuildController and the new key-based
+// build controller. It delegates to Controller and the new key-based
 // reconcilers introduced in WS2-WS4.
 type OSBuildController struct {
-	inner *BuildController
+	inner *Controller
 
 	// shutdownChan is closed when the controller finishes shutting down.
 	shutdownChan <-chan struct{}
@@ -85,8 +85,8 @@ func newOSBuildController(
 	ctrlConfig Config,
 	mcfgclient mcfgclientset.Interface,
 	kubeclient clientset.Interface,
-	imageclient imagev1clientset.Interface,
-	routeclient routeclientset.Interface,
+	_ imagev1clientset.Interface, // reserved for future image API usage
+	_ routeclientset.Interface, // reserved for future route API usage
 	pruner imagepruner.ImagePruner,
 ) *OSBuildController {
 	eventBroadcaster := record.NewBroadcaster()
@@ -149,7 +149,7 @@ func newOSBuildController(
 	}
 
 	// Construct the multi-queue controller.
-	bc := NewBuildController(r, inf, l, ctrlConfig)
+	bc := NewController(r, inf, l, ctrlConfig)
 
 	return &OSBuildController{
 		inner:        bc,

@@ -182,7 +182,7 @@ func TestBuildRequest(t *testing.T) {
 			for _, object := range objects {
 				assert.True(t, utils.EphemeralBuildObjectSelector().Matches(labels.Set(object.GetLabels())))
 				assert.True(t, utils.OSBuildSelector().Matches(labels.Set(object.GetLabels())))
-				assert.True(t, utils.IsObjectCreatedByBuildController(object))
+				assert.True(t, utils.IsObjectCreatedByController(object))
 			}
 
 			for _, secret := range secrets {

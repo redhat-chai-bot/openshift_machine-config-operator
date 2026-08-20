@@ -78,7 +78,7 @@ func TestCanonicalizePullSecret(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Contains(t, out.Name, "canonical")
 			assert.True(t, utils.CanonicalizedSecretSelector().Matches(labels.Set(out.GetLabels())))
-			assert.True(t, utils.IsObjectCreatedByBuildController(out))
+			assert.True(t, utils.IsObjectCreatedByController(out))
 		})
 	}
 }

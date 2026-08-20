@@ -140,13 +140,13 @@ func labelsToSelector(requiredLabels []string) labels.Selector {
 	return labels.NewSelector().Add(reqs...)
 }
 
-// Determines if a given object was created by BuildController. This is mostly
+// Determines if a given object was created by Controller. This is mostly
 // useful for tests and other helpers that may need to clean up after a failed
 // run. It first determines if the object is an ephemeral build object, next it
 // checks whether the object has all of the required labels, next it checks if
 // the object is a canonicalized secret, and finally, it checks whether the
 // object is a MachineOSBuild.
-func IsObjectCreatedByBuildController(obj metav1.Object) bool {
+func IsObjectCreatedByController(obj metav1.Object) bool {
 	if isEphemeralBuildObject(obj) {
 		return true
 	}
