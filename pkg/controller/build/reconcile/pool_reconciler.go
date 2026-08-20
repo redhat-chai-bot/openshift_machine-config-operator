@@ -109,7 +109,7 @@ func (r *PoolReconciler) ensureBuildForPool(ctx context.Context, mcp *mcfgv1.Mac
 	}
 
 	// Create the MOSB using the shared helper.
-	if _, err := createMachineOSBuildForMOSC(ctx, r.mcfgclient, desiredMOSB, mosc); err != nil {
+	if err := createMachineOSBuildForMOSC(ctx, r.mcfgclient, desiredMOSB, mosc); err != nil {
 		return err
 	}
 

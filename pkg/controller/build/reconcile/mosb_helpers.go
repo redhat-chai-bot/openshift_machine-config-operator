@@ -50,19 +50,19 @@ func createMachineOSBuildForMOSC(
 	mcfgclient mcfgclientset.Interface,
 	mosb *mcfgv1.MachineOSBuild,
 	mosc *mcfgv1.MachineOSConfig,
-) (*mcfgv1.MachineOSBuild, error) {
+) error {
 	oref := metav1.NewControllerRef(mosc, mcfgv1.SchemeGroupVersion.WithKind("MachineOSConfig"))
 	mosb.SetOwnerReferences([]metav1.OwnerReference{*oref})
 
-	created, err := mcfgclient.MachineconfigurationV1().MachineOSBuilds().Create(ctx, mosb, metav1.CreateOptions{})
+	_, err := mcfgclient.MachineconfigurationV1().MachineOSBuilds().Create(ctx, mosb, metav1.CreateOptions{})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
 			klog.Infof("MachineOSBuild %q already exists, skipping creation", mosb.Name)
-			return mosb, nil
+			return nil
 		}
-		return nil, fmt.Errorf("could not create MachineOSBuild %q: %w", mosb.Name, err)
+		return fmt.Errorf("could not create MachineOSBuild %q: %w", mosb.Name, err)
 	}
 
 	klog.Infof("Created MachineOSBuild %q for MachineOSConfig %q", mosb.Name, mosc.Name)
-	return created, nil
+	return nil
 }

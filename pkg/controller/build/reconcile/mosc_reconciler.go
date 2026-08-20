@@ -184,7 +184,7 @@ func (r *MOSCReconciler) createMachineOSBuild(ctx context.Context, mosc *mcfgv1.
 		return err
 	}
 
-	if _, err := createMachineOSBuildForMOSC(ctx, r.mcfgclient, mosb, mosc); err != nil {
+	if err := createMachineOSBuildForMOSC(ctx, r.mcfgclient, mosb, mosc); err != nil {
 		return err
 	}
 
