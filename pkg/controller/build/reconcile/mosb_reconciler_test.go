@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
@@ -74,7 +75,7 @@ func TestMOSBReconciler_TerminalSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !dh.updateCalled {
+	if !dh.wasUpdateCalled() {
 		t.Error("expected degraded handler UpdateImageBuildDegraded to be called")
 	}
 }
@@ -124,8 +125,14 @@ func TestIsPreBuiltMOSB(t *testing.T) {
 }
 
 // fakeDegradedHandler satisfies services.DegradedHandler for tests.
+// Thread-safe via atomic for use in concurrent tests.
 type fakeDegradedHandler struct {
-	updateCalled bool
+	updateCount atomic.Int64
+}
+
+// updateCalled is a convenience accessor for non-concurrent tests.
+func (f *fakeDegradedHandler) wasUpdateCalled() bool {
+	return f.updateCount.Load() > 0
 }
 
 func (f *fakeDegradedHandler) InitializeBuildDegraded(_ context.Context, _ *mcfgv1.MachineConfigPool) error {
@@ -138,6 +145,6 @@ func (f *fakeDegradedHandler) SyncBuildFailure(_ context.Context, _ *mcfgv1.Mach
 	return buildErr
 }
 func (f *fakeDegradedHandler) UpdateImageBuildDegraded(_ context.Context, _ *mcfgv1.MachineConfigPool, _ *mcfgv1.MachineOSConfig) error {
-	f.updateCalled = true
+	f.updateCount.Add(1)
 	return nil
 }
