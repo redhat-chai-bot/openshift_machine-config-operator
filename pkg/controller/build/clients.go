@@ -17,6 +17,7 @@ import (
 	coreinformersv1 "k8s.io/client-go/informers/core/v1"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
@@ -70,6 +71,22 @@ type listers struct {
 	nodeLister              corelistersv1.NodeLister
 	configmapLister         corelistersv1.ConfigMapLister
 	secretLister            corelistersv1.SecretLister
+}
+
+func (l *listers) accessors(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface) *access.Accessors {
+	return &access.Accessors{
+		Kubeclient:              kubeclient,
+		Mcfgclient:              mcfgclient,
+		SecretLister:            l.secretLister,
+		ConfigMapLister:         l.configmapLister,
+		NodeLister:              l.nodeLister,
+		MachineOSBuildLister:    l.machineOSBuildLister,
+		MachineOSConfigLister:   l.machineOSConfigLister,
+		MachineConfigPoolLister: l.machineConfigPoolLister,
+		MachineConfigLister:     l.machineConfigLister,
+		ControllerConfigLister:  l.controllerConfigLister,
+		JobLister:               l.jobLister,
+	}
 }
 
 func (l *listers) utilListers() *utils.Listers {
