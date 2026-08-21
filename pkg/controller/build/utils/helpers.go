@@ -107,3 +107,27 @@ func GetFinalPushSecretName(mosb *mcfgv1.MachineOSBuild) string {
 func getFieldFromMachineOSBuild(mosb *mcfgv1.MachineOSBuild) string {
 	return mosb.Name
 }
+
+// ValidateMachineOSConfigSpec checks that the shared MachineOSConfig fields
+// required to start a build are set and syntactically valid. Both the
+// on-cluster pre-flight check (helpers.go) and the build-request option
+// getter (buildrequestopts.go) delegate to these predicates.
+func ValidateMachineOSConfigSpec(mosc *mcfgv1.MachineOSConfig) error {
+	if mosc == nil {
+		return fmt.Errorf("expected MachineOSConfig not to be nil")
+	}
+
+	if mosc.Spec.RenderedImagePushSecret.Name == "" {
+		return fmt.Errorf("renderedImagePushSecret empty for MachineOSConfig %s", mosc.Name)
+	}
+
+	if mosc.Spec.RenderedImagePushSpec == "" {
+		return fmt.Errorf("renderedImagePushspec empty for MachineOSConfig %s", mosc.Name)
+	}
+
+	if _, err := reference.ParseNamed(string(mosc.Spec.RenderedImagePushSpec)); err != nil {
+		return fmt.Errorf("invalid renderedImagePushSpec for MachineOSConfig %s: %w", mosc.Name, err)
+	}
+
+	return nil
+}

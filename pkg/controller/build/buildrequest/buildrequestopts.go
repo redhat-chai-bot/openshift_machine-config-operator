@@ -4,11 +4,11 @@ import (
 	"fmt"
 	goruntime "runtime"
 
-	"github.com/distribution/reference"
 	configv1 "github.com/openshift/api/config/v1"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/openshift/machine-config-operator/pkg/helpers"
 	"github.com/openshift/machine-config-operator/pkg/secrets"
@@ -122,25 +122,8 @@ type optsGetter struct {
 	listers *Listers
 }
 
-// TODO: Deduplicate this.
 func (o *optsGetter) validateMachineOSConfig(mosc *mcfgv1.MachineOSConfig) error {
-	if mosc == nil {
-		return fmt.Errorf("expected MachineOSConfig not to be nil")
-	}
-
-	if mosc.Spec.RenderedImagePushSecret.Name == "" {
-		return fmt.Errorf("renderedImagePushSecret empty for MachineOSConfig %s", mosc.Name)
-	}
-
-	if mosc.Spec.RenderedImagePushSpec == "" {
-		return fmt.Errorf("renderedImagePushspec empty for MachineOSConfig %s", mosc.Name)
-	}
-
-	if _, err := reference.ParseNamed(string(mosc.Spec.RenderedImagePushSpec)); err != nil {
-		return fmt.Errorf("invalid renderedImagePushSpec for MachineOSConfig %s: %w", mosc.Name, err)
-	}
-
-	return nil
+	return utils.ValidateMachineOSConfigSpec(mosc)
 }
 
 // Validates that the required fields on a MachineOSBuild are set before beginning the build.

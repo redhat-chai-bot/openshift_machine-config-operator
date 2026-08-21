@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/containers/image/v5/docker/reference"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/client-go/machineconfiguration/clientset/versioned"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/openshift/machine-config-operator/pkg/secrets"
 	corev1 "k8s.io/api/core/v1"
@@ -56,6 +56,10 @@ func ValidateOnClusterBuildConfig(ctx context.Context, kubeclient clientset.Inte
 }
 
 func validateMachineOSConfig(mcpGetter func(string) (*mcfgv1.MachineConfigPool, error), secretGetter func(string) (*corev1.Secret, error), mosc *mcfgv1.MachineOSConfig) error {
+	if err := utils.ValidateMachineOSConfigSpec(mosc); err != nil {
+		return err
+	}
+
 	_, err := mcpGetter(mosc.Spec.MachineConfigPool.Name)
 	if err != nil && k8serrors.IsNotFound(err) {
 		return fmt.Errorf("no MachineConfigPool named %s exists for MachineOSConfig %s", mosc.Spec.MachineConfigPool.Name, mosc.Name)
@@ -77,10 +81,6 @@ func validateMachineOSConfig(mcpGetter func(string) (*mcfgv1.MachineConfigPool, 
 		if err := validateSecret(secretGetter, mosc, secretName); err != nil {
 			return fmt.Errorf("could not validate %s %q for MachineOSConfig %s: %w", fieldName, secretName, mosc.Name, err)
 		}
-	}
-
-	if _, err := reference.ParseNamed(string(mosc.Spec.RenderedImagePushSpec)); err != nil {
-		return fmt.Errorf("could not validate renderdImagePushspec %s for MachineOSConfig %s: %w", string(mosc.Spec.RenderedImagePushSpec), mosc.Name, err)
 	}
 
 	return nil
