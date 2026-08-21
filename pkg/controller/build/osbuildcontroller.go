@@ -11,7 +11,6 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagepruner"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/reconcile"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	corev1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
 	coreclientsetv1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -113,14 +112,6 @@ func newOSBuildControllerWithServices(
 	// Build metrics recorder — no-op at construction; RegisterOCLMetrics registers the real one.
 	metrics := services.NewNoopMetricsRecorder()
 
-	// Build utility listers for cross-resource lookups.
-	utilListers := &utils.Listers{
-		MachineOSBuildLister:    l.machineOSBuildLister,
-		MachineOSConfigLister:   l.machineOSConfigLister,
-		MachineConfigPoolLister: l.machineConfigPoolLister,
-		NodeLister:              l.nodeLister,
-	}
-
 	// Construct services, using injected overrides when present.
 	degraded := services.NewDegradedHandler(mcfgclient, l.machineOSBuildLister)
 	if reuseChecker == nil {
@@ -130,33 +121,21 @@ func newOSBuildControllerWithServices(
 		seeder = services.NewSeeder(mcfgclient, kubeclient, l.machineConfigPoolLister, l.machineConfigLister)
 	}
 
-	// Unified data-access container for resolving build inputs from
-	// the informer cache.
-	acc := l.accessors(kubeclient, mcfgclient)
+	// Unified data-access and service dependency container.
+	deps := reconcile.Deps{
+		Accessors:    l.accessors(kubeclient, mcfgclient),
+		Events:       events,
+		Metrics:      metrics,
+		Degraded:     degraded,
+		Seeder:       seeder,
+		ReuseChecker: reuseChecker,
+	}
 
 	// Construct the 4 reconcilers.
-	moscR := reconcile.NewMOSCReconciler(
-		mcfgclient, kubeclient, l.machineOSConfigLister, l.machineOSBuildLister,
-		l.machineConfigPoolLister, l.machineConfigLister,
-		events, metrics, seeder, reuseChecker,
-	)
-
-	mosbR := reconcile.NewMOSBReconciler(
-		mcfgclient, kubeclient, l.machineOSBuildLister, l.machineOSConfigLister,
-		l.machineConfigPoolLister, l.machineConfigLister,
-		events, metrics, degraded, utilListers, acc,
-	)
-
-	poolR := reconcile.NewPoolReconciler(
-		mcfgclient, l.machineConfigPoolLister, l.machineOSConfigLister,
-		l.machineOSBuildLister, l.machineConfigLister,
-		events, metrics, degraded, utilListers,
-	)
-
-	jobR := reconcile.NewJobReconciler(
-		mcfgclient, kubeclient, l.jobLister, l.machineOSBuildLister,
-		l.machineOSConfigLister, events, metrics, utilListers,
-	)
+	moscR := reconcile.NewMOSCReconciler(deps)
+	mosbR := reconcile.NewMOSBReconciler(deps)
+	poolR := reconcile.NewPoolReconciler(deps)
+	jobR := reconcile.NewJobReconciler(deps)
 
 	// Compose into a single Reconciler.
 	r := &compositeReconciler{

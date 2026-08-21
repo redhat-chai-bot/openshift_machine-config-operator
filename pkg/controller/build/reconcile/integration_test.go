@@ -11,8 +11,8 @@ import (
 	fakemcfgclient "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -203,11 +203,19 @@ func TestIntegration_MOSCCreateTriggersMOSBCreation(t *testing.T) {
 	mcpLister := &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}}
 	mcLister := &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}}
 
-	moscReconciler := NewMOSCReconciler(
-		mcfgclient, nil, moscLister, mosbLister, mcpLister, mcLister,
-		events, services.NewNoopMetricsRecorder(),
-		&fakeSeeder{}, &fakeReuseChecker{},
-	)
+	moscReconciler := NewMOSCReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			MachineOSConfigLister:   moscLister,
+			MachineOSBuildLister:    mosbLister,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:       events,
+		Metrics:      services.NewNoopMetricsRecorder(),
+		Seeder:       &fakeSeeder{},
+		ReuseChecker: &fakeReuseChecker{},
+	})
 
 	ctx := context.Background()
 	if err := moscReconciler.ReconcileMOSC(ctx, testMOSCName); err != nil {
@@ -258,16 +266,16 @@ func TestIntegration_MOSBTerminalFailureTriggersDegraded(t *testing.T) {
 	moscLister := &fakeMOSCListerForSelector{items: []*mcfgv1.MachineOSConfig{mosc}}
 	mcpLister := &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}}
 
-	mosbReconciler := NewMOSBReconciler(
-		nil, nil, mosbLister, moscLister, mcpLister, nil,
-		events, services.NewNoopMetricsRecorder(), dh,
-		&utils.Listers{
+	mosbReconciler := NewMOSBReconciler(Deps{
+		Accessors: &access.Accessors{
 			MachineOSBuildLister:    mosbLister,
 			MachineOSConfigLister:   moscLister,
 			MachineConfigPoolLister: mcpLister,
 		},
-		nil,
-	)
+		Events:   events,
+		Metrics:  services.NewNoopMetricsRecorder(),
+		Degraded: dh,
+	})
 
 	if err := mosbReconciler.ReconcileMOSB(context.Background(), "failed-mosb"); err != nil {
 		t.Fatalf("ReconcileMOSB failed: %v", err)
@@ -302,15 +310,18 @@ func TestIntegration_PoolReconcileUpdatesDegradedAndCreatesBuilds(t *testing.T) 
 	mcpLister := &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}}
 	mcLister := &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}}
 
-	poolReconciler := NewPoolReconciler(
-		mcfgclient, mcpLister, moscLister, mosbLister, mcLister,
-		events, services.NewNoopMetricsRecorder(), dh,
-		&utils.Listers{
+	poolReconciler := NewPoolReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
 			MachineOSBuildLister:    mosbLister,
 			MachineOSConfigLister:   moscLister,
 			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
 		},
-	)
+		Events:   events,
+		Metrics:  services.NewNoopMetricsRecorder(),
+		Degraded: dh,
+	})
 
 	ctx := context.Background()
 	if err := poolReconciler.ReconcilePool(ctx, testPool); err != nil {
@@ -349,27 +360,45 @@ func TestIntegration_CrossControllerChain_MOSCToMOSBToPool(t *testing.T) {
 	mcpLister := &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}}
 	mcLister := &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}}
 
-	utilListers := &utils.Listers{
-		MachineOSBuildLister:    mutableMOSB,
-		MachineOSConfigLister:   moscLister,
-		MachineConfigPoolLister: mcpLister,
-	}
+	moscReconciler := NewMOSCReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			MachineOSConfigLister:   moscLister,
+			MachineOSBuildLister:    mutableMOSB,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:       events,
+		Metrics:      services.NewNoopMetricsRecorder(),
+		Seeder:       &fakeSeeder{},
+		ReuseChecker: &fakeReuseChecker{},
+	})
 
-	moscReconciler := NewMOSCReconciler(
-		mcfgclient, nil, moscLister, mutableMOSB, mcpLister, mcLister,
-		events, services.NewNoopMetricsRecorder(),
-		&fakeSeeder{}, &fakeReuseChecker{},
-	)
+	mosbReconciler := NewMOSBReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			MachineOSBuildLister:    mutableMOSB,
+			MachineOSConfigLister:   moscLister,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:   events,
+		Metrics:  services.NewNoopMetricsRecorder(),
+		Degraded: dh,
+	})
 
-	mosbReconciler := NewMOSBReconciler(
-		mcfgclient, nil, mutableMOSB, moscLister, mcpLister, mcLister,
-		events, services.NewNoopMetricsRecorder(), dh, utilListers, nil,
-	)
-
-	poolReconciler := NewPoolReconciler(
-		mcfgclient, mcpLister, moscLister, mutableMOSB, mcLister,
-		events, services.NewNoopMetricsRecorder(), dh, utilListers,
-	)
+	poolReconciler := NewPoolReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			MachineOSBuildLister:    mutableMOSB,
+			MachineOSConfigLister:   moscLister,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:   events,
+		Metrics:  services.NewNoopMetricsRecorder(),
+		Degraded: dh,
+	})
 
 	ctx := context.Background()
 
@@ -453,24 +482,60 @@ func TestIntegration_ConcurrencyStressor(t *testing.T) {
 	mcLister := &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}}
 	jobLister := &integrationJobLister{items: []*batchv1.Job{job}}
 
-	utilListers := &utils.Listers{
-		MachineOSBuildLister:    mosbLister,
-		MachineOSConfigLister:   moscLister,
-		MachineConfigPoolLister: mcpLister,
-	}
-
 	events := newTrackingEventRecorder()
 	metrics := services.NewNoopMetricsRecorder()
 	dh := &fakeDegradedHandler{}
 
-	moscR := NewMOSCReconciler(mcfgclient, kubeclient, moscLister, mosbLister, mcpLister, mcLister,
-		events, metrics, &fakeSeeder{}, &fakeReuseChecker{})
-	mosbR := NewMOSBReconciler(mcfgclient, kubeclient, mosbLister, moscLister, mcpLister, mcLister,
-		events, metrics, dh, utilListers, nil)
-	poolR := NewPoolReconciler(mcfgclient, mcpLister, moscLister, mosbLister, mcLister,
-		events, metrics, dh, utilListers)
-	jobR := NewJobReconciler(mcfgclient, kubeclient, jobLister, mosbLister, moscLister,
-		events, metrics, utilListers)
+	moscR := NewMOSCReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			Kubeclient:              kubeclient,
+			MachineOSConfigLister:   moscLister,
+			MachineOSBuildLister:    mosbLister,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:       events,
+		Metrics:      metrics,
+		Seeder:       &fakeSeeder{},
+		ReuseChecker: &fakeReuseChecker{},
+	})
+	mosbR := NewMOSBReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			Kubeclient:              kubeclient,
+			MachineOSBuildLister:    mosbLister,
+			MachineOSConfigLister:   moscLister,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:   events,
+		Metrics:  metrics,
+		Degraded: dh,
+	})
+	poolR := NewPoolReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
+			MachineOSBuildLister:    mosbLister,
+			MachineOSConfigLister:   moscLister,
+			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
+		},
+		Events:   events,
+		Metrics:  metrics,
+		Degraded: dh,
+	})
+	jobR := NewJobReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:            mcfgclient,
+			Kubeclient:            kubeclient,
+			JobLister:             jobLister,
+			MachineOSBuildLister:  mosbLister,
+			MachineOSConfigLister: moscLister,
+		},
+		Events:  events,
+		Metrics: metrics,
+	})
 
 	ctx := context.Background()
 
@@ -527,14 +592,18 @@ func TestIntegration_PoolReconcileIdempotent(t *testing.T) {
 	mcpLister := &fakeMCPListerForSelector{items: []*mcfgv1.MachineConfigPool{mcp}}
 	mcLister := &fakeMCListerForSelector{items: []*mcfgv1.MachineConfig{mc}}
 
-	poolR := NewPoolReconciler(mcfgclient, mcpLister, moscLister, mutableMOSB, mcLister,
-		services.NewNoopEventRecorder(), services.NewNoopMetricsRecorder(), dh,
-		&utils.Listers{
+	poolR := NewPoolReconciler(Deps{
+		Accessors: &access.Accessors{
+			Mcfgclient:              mcfgclient,
 			MachineOSBuildLister:    mutableMOSB,
 			MachineOSConfigLister:   moscLister,
 			MachineConfigPoolLister: mcpLister,
+			MachineConfigLister:     mcLister,
 		},
-	)
+		Events:   services.NewNoopEventRecorder(),
+		Metrics:  services.NewNoopMetricsRecorder(),
+		Degraded: dh,
+	})
 
 	ctx := context.Background()
 

@@ -37,26 +37,23 @@ type JobReconciler struct {
 	utilListers *utils.Listers
 }
 
-// NewJobReconciler constructs a JobReconciler with injected dependencies.
-func NewJobReconciler(
-	mcfgclient mcfgclientset.Interface,
-	kubeclient clientset.Interface,
-	jobLister batchlisterv1.JobLister,
-	mosbLister mcfglistersv1.MachineOSBuildLister,
-	moscLister mcfglistersv1.MachineOSConfigLister,
-	events services.EventRecorder,
-	metrics services.MetricsRecorder,
-	utilListers *utils.Listers,
-) *JobReconciler {
+// NewJobReconciler constructs a JobReconciler from the shared Deps container.
+func NewJobReconciler(d Deps) *JobReconciler {
+	a := d.Accessors
 	return &JobReconciler{
-		mcfgclient:  mcfgclient,
-		kubeclient:  kubeclient,
-		jobLister:   jobLister,
-		mosbLister:  mosbLister,
-		moscLister:  moscLister,
-		events:      events,
-		metrics:     metrics,
-		utilListers: utilListers,
+		mcfgclient: a.Mcfgclient,
+		kubeclient: a.Kubeclient,
+		jobLister:  a.JobLister,
+		mosbLister: a.MachineOSBuildLister,
+		moscLister: a.MachineOSConfigLister,
+		events:     d.Events,
+		metrics:    d.Metrics,
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    a.MachineOSBuildLister,
+			MachineOSConfigLister:   a.MachineOSConfigLister,
+			MachineConfigPoolLister: a.MachineConfigPoolLister,
+			NodeLister:              a.NodeLister,
+		},
 	}
 }
 

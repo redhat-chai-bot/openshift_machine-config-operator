@@ -29,28 +29,24 @@ type PoolReconciler struct {
 	utilListers *utils.Listers
 }
 
-// NewPoolReconciler constructs a PoolReconciler with injected dependencies.
-func NewPoolReconciler(
-	mcfgclient mcfgclientset.Interface,
-	mcpLister mcfglistersv1.MachineConfigPoolLister,
-	moscLister mcfglistersv1.MachineOSConfigLister,
-	mosbLister mcfglistersv1.MachineOSBuildLister,
-	mcLister mcfglistersv1.MachineConfigLister,
-	events services.EventRecorder,
-	metrics services.MetricsRecorder,
-	degraded services.DegradedHandler,
-	utilListers *utils.Listers,
-) *PoolReconciler {
+// NewPoolReconciler constructs a PoolReconciler from the shared Deps container.
+func NewPoolReconciler(d Deps) *PoolReconciler {
+	a := d.Accessors
 	return &PoolReconciler{
-		mcfgclient:  mcfgclient,
-		mcpLister:   mcpLister,
-		moscLister:  moscLister,
-		mosbLister:  mosbLister,
-		mcLister:    mcLister,
-		events:      events,
-		metrics:     metrics,
-		degraded:    degraded,
-		utilListers: utilListers,
+		mcfgclient: a.Mcfgclient,
+		mcpLister:  a.MachineConfigPoolLister,
+		moscLister: a.MachineOSConfigLister,
+		mosbLister: a.MachineOSBuildLister,
+		mcLister:   a.MachineConfigLister,
+		events:     d.Events,
+		metrics:    d.Metrics,
+		degraded:   d.Degraded,
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    a.MachineOSBuildLister,
+			MachineOSConfigLister:   a.MachineOSConfigLister,
+			MachineConfigPoolLister: a.MachineConfigPoolLister,
+			NodeLister:              a.NodeLister,
+		},
 	}
 }
 

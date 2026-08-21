@@ -41,32 +41,26 @@ type MOSBReconciler struct {
 	accessors   *access.Accessors
 }
 
-// NewMOSBReconciler constructs a MOSBReconciler with injected dependencies.
-func NewMOSBReconciler(
-	mcfgclient mcfgclientset.Interface,
-	kubeclient clientset.Interface,
-	mosbLister mcfglistersv1.MachineOSBuildLister,
-	moscLister mcfglistersv1.MachineOSConfigLister,
-	mcpLister mcfglistersv1.MachineConfigPoolLister,
-	mcLister mcfglistersv1.MachineConfigLister,
-	events services.EventRecorder,
-	metrics services.MetricsRecorder,
-	degraded services.DegradedHandler,
-	utilListers *utils.Listers,
-	acc *access.Accessors,
-) *MOSBReconciler {
+// NewMOSBReconciler constructs a MOSBReconciler from the shared Deps container.
+func NewMOSBReconciler(d Deps) *MOSBReconciler {
+	a := d.Accessors
 	return &MOSBReconciler{
-		mcfgclient:  mcfgclient,
-		kubeclient:  kubeclient,
-		mosbLister:  mosbLister,
-		moscLister:  moscLister,
-		mcpLister:   mcpLister,
-		mcLister:    mcLister,
-		events:      events,
-		metrics:     metrics,
-		degraded:    degraded,
-		utilListers: utilListers,
-		accessors:   acc,
+		mcfgclient:  a.Mcfgclient,
+		kubeclient:  a.Kubeclient,
+		mosbLister:  a.MachineOSBuildLister,
+		moscLister:  a.MachineOSConfigLister,
+		mcpLister:   a.MachineConfigPoolLister,
+		mcLister:    a.MachineConfigLister,
+		events:      d.Events,
+		metrics:     d.Metrics,
+		degraded:    d.Degraded,
+		utilListers: &utils.Listers{
+			MachineOSBuildLister:    a.MachineOSBuildLister,
+			MachineOSConfigLister:   a.MachineOSConfigLister,
+			MachineConfigPoolLister: a.MachineConfigPoolLister,
+			NodeLister:              a.NodeLister,
+		},
+		accessors: a,
 	}
 }
 

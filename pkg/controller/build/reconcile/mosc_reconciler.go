@@ -35,30 +35,20 @@ type MOSCReconciler struct {
 	reuse   services.ImageReuseChecker
 }
 
-// NewMOSCReconciler constructs a MOSCReconciler with injected dependencies.
-func NewMOSCReconciler(
-	mcfgclient mcfgclientset.Interface,
-	kubeclient clientset.Interface,
-	moscLister mcfglistersv1.MachineOSConfigLister,
-	mosbLister mcfglistersv1.MachineOSBuildLister,
-	mcpLister mcfglistersv1.MachineConfigPoolLister,
-	mcLister mcfglistersv1.MachineConfigLister,
-	events services.EventRecorder,
-	metrics services.MetricsRecorder,
-	seeder services.Seeder,
-	reuse services.ImageReuseChecker,
-) *MOSCReconciler {
+// NewMOSCReconciler constructs a MOSCReconciler from the shared Deps container.
+func NewMOSCReconciler(d Deps) *MOSCReconciler {
+	a := d.Accessors
 	return &MOSCReconciler{
-		mcfgclient: mcfgclient,
-		kubeclient: kubeclient,
-		moscLister: moscLister,
-		mosbLister: mosbLister,
-		mcpLister:  mcpLister,
-		mcLister:   mcLister,
-		events:     events,
-		metrics:    metrics,
-		seeder:     seeder,
-		reuse:      reuse,
+		mcfgclient: a.Mcfgclient,
+		kubeclient: a.Kubeclient,
+		moscLister: a.MachineOSConfigLister,
+		mosbLister: a.MachineOSBuildLister,
+		mcpLister:  a.MachineConfigPoolLister,
+		mcLister:   a.MachineConfigLister,
+		events:     d.Events,
+		metrics:    d.Metrics,
+		seeder:     d.Seeder,
+		reuse:      d.ReuseChecker,
 	}
 }
 
