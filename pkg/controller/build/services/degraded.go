@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/openshift/machine-config-operator/pkg/apihelpers"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 
@@ -162,7 +163,7 @@ func getCurrentBuild(mosc *mcfgv1.MachineOSConfig, mosbList []*mcfgv1.MachineOSB
 	var activeBuild *mcfgv1.MachineOSBuild
 	var mostRecentBuild *mcfgv1.MachineOSBuild
 
-	currentBuildName := mosc.Annotations["machineconfiguration.openshift.io/current-machine-os-build"]
+	currentBuildName := mosc.Annotations[constants.CurrentMachineOSBuildAnnotationKey]
 
 	for _, mosb := range mosbList {
 		if currentBuildName != "" && mosb.Name == currentBuildName {
