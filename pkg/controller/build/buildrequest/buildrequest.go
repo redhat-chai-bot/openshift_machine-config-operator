@@ -12,6 +12,7 @@ import (
 	command "github.com/openshift/imagebuilder/dockerfile/command"
 	parser "github.com/openshift/imagebuilder/dockerfile/parser"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	chelpers "github.com/openshift/machine-config-operator/pkg/controller/common"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
@@ -80,8 +81,8 @@ type buildRequestImpl struct {
 }
 
 // Constructs an imageBuildRequest using informer-backed listers.
-func NewBuildRequestFromAPI(l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (BuildRequest, error) {
-	opts, err := newBuildRequestOptsFromAPI(l, mosb, mosc)
+func NewBuildRequestFromAPI(a *access.Accessors, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (BuildRequest, error) {
+	opts, err := newBuildRequestOptsFromAPI(a, mosb, mosc)
 	if err != nil {
 		return nil, err
 	}

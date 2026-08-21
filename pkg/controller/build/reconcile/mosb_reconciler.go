@@ -11,6 +11,7 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/apihelpers"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/imagebuilder"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
@@ -37,7 +38,7 @@ type MOSBReconciler struct {
 	degraded services.DegradedHandler
 
 	utilListers *utils.Listers
-	brListers   *buildrequest.Listers
+	accessors   *access.Accessors
 }
 
 // NewMOSBReconciler constructs a MOSBReconciler with injected dependencies.
@@ -52,7 +53,7 @@ func NewMOSBReconciler(
 	metrics services.MetricsRecorder,
 	degraded services.DegradedHandler,
 	utilListers *utils.Listers,
-	brListers *buildrequest.Listers,
+	acc *access.Accessors,
 ) *MOSBReconciler {
 	return &MOSBReconciler{
 		mcfgclient:  mcfgclient,
@@ -65,7 +66,7 @@ func NewMOSBReconciler(
 		metrics:     metrics,
 		degraded:    degraded,
 		utilListers: utilListers,
-		brListers:   brListers,
+		accessors:   acc,
 	}
 }
 
@@ -258,7 +259,7 @@ func (r *MOSBReconciler) startBuild(ctx context.Context, mosb *mcfgv1.MachineOSB
 	r.events.RecordBuildPreparing(mosb, fmt.Sprintf("creating build job for pool %q", poolName))
 	r.metrics.RecordBuildStarted(poolName)
 
-	if err := imagebuilder.NewJobImageBuilder(r.kubeclient, r.mcfgclient, r.brListers, mosb, mosc).Start(ctx); err != nil {
+	if err := imagebuilder.NewJobImageBuilder(r.kubeclient, r.mcfgclient, r.accessors, mosb, mosc).Start(ctx); err != nil {
 		var validationErr *buildrequest.ContainerfileValidationError
 		if errors.As(err, &validationErr) {
 			klog.Warningf("MOSBReconciler: %q has invalid Containerfile, marking failed: %v", mosb.Name, validationErr)

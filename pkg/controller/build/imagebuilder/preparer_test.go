@@ -8,6 +8,7 @@ import (
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	testhelpers "github.com/openshift/machine-config-operator/test/helpers"
@@ -22,8 +23,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// newTestBRListers creates buildrequest.Listers backed by in-memory indexers.
-func newTestBRListers(kubeObjects []runtime.Object, mcfgObjects []runtime.Object) *buildrequest.Listers {
+// newTestAccessors creates access.Accessors backed by in-memory indexers.
+func newTestAccessors(kubeObjects []runtime.Object, mcfgObjects []runtime.Object) *access.Accessors {
 	secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	mcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
@@ -46,7 +47,7 @@ func newTestBRListers(kubeObjects []runtime.Object, mcfgObjects []runtime.Object
 		}
 	}
 
-	return &buildrequest.Listers{
+	return &access.Accessors{
 		SecretLister:           corelistersv1.NewSecretLister(secretIndexer),
 		ConfigMapLister:        corelistersv1.NewConfigMapLister(cmIndexer),
 		MachineConfigLister:    mcfglistersv1.NewMachineConfigLister(mcIndexer),
@@ -80,13 +81,13 @@ func TestPreparer(t *testing.T) {
 		mcfgObjs = append(mcfgObjs, mc)
 	}
 	mcfgObjs = append(mcfgObjs, obj3.RenderedMachineConfig)
-	brListers := newTestBRListers(kubeObjs, mcfgObjs)
+	acc := newTestAccessors(kubeObjs, mcfgObjs)
 
 	// Create three preparers assigned to their own MachineOSBuild though sharing
 	// the same kubeclient and lister objects.
-	p1 := NewPreparer(kubeclient, brListers, obj1.MachineOSBuild, obj1.MachineOSConfig)
-	p2 := NewPreparer(kubeclient, brListers, obj2.MachineOSBuild, obj2.MachineOSConfig)
-	p3 := NewPreparer(kubeclient, brListers, obj3.MachineOSBuild, obj3.MachineOSConfig)
+	p1 := NewPreparer(kubeclient, acc, obj1.MachineOSBuild, obj1.MachineOSConfig)
+	p2 := NewPreparer(kubeclient, acc, obj2.MachineOSBuild, obj2.MachineOSConfig)
+	p3 := NewPreparer(kubeclient, acc, obj3.MachineOSBuild, obj3.MachineOSConfig)
 
 	// Run all of the preparers and ensure that all of the build objects have been created.
 	br1, err := p1.Prepare(ctx)

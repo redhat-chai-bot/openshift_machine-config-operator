@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/stretchr/testify/assert"
@@ -17,12 +18,12 @@ import (
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 )
 
-// newTestListers creates Listers backed by in-memory indexers populated
+// newTestAccessors creates Accessors backed by in-memory indexers populated
 // from the given fake clients' objects.
-func newTestListers(
+func newTestAccessors(
 	kubeObjects []runtime.Object,
 	mcfgObjects []runtime.Object,
-) *Listers {
+) *access.Accessors {
 	secretIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	cmIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
 	mcIndexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{})
@@ -45,7 +46,7 @@ func newTestListers(
 		}
 	}
 
-	return &Listers{
+	return &access.Accessors{
 		SecretLister:           corelistersv1.NewSecretLister(secretIndexer),
 		ConfigMapLister:        corelistersv1.NewConfigMapLister(cmIndexer),
 		MachineConfigLister:    mcfglistersv1.NewMachineConfigLister(mcIndexer),
@@ -181,7 +182,7 @@ func TestBuildRequestOpts(t *testing.T) {
 			}
 			filtered = append(filtered, obj)
 		}
-		l := newTestListers(filtered, mcfgObjs)
+		l := newTestAccessors(filtered, mcfgObjs)
 
 		// This must not panic; it should return an error referencing
 		// the fallback secret name.
@@ -203,7 +204,7 @@ func TestBuildRequestOpts(t *testing.T) {
 
 			kubeObjs, mcfgObjs := fixtures.DefaultObjectsForListers()
 			kubeObjs = append(kubeObjs, testCase.addlObjects...)
-			l := newTestListers(kubeObjs, mcfgObjs)
+			l := newTestAccessors(kubeObjs, mcfgObjs)
 
 			brOpts, err := newBuildRequestOptsFromAPI(l, lobj.MachineOSBuild, lobj.MachineOSConfig)
 			assert.NoError(t, err)

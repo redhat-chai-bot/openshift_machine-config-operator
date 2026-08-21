@@ -6,15 +6,14 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/openshift/machine-config-operator/pkg/helpers"
 	"github.com/openshift/machine-config-operator/pkg/secrets"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	corelistersv1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -68,20 +67,10 @@ func (b BuildRequestOpts) getExtensionsPackages() ([]string, error) {
 	return ctrlcommon.GetPackagesForSupportedExtensions(b.MachineConfig.Spec.Extensions)
 }
 
-// Listers holds the informer-backed listers required to populate
-// BuildRequestOpts from the local cache instead of making direct API
-// server calls.
-type Listers struct {
-	SecretLister           corelistersv1.SecretLister
-	ConfigMapLister        corelistersv1.ConfigMapLister
-	MachineConfigLister    mcfglistersv1.MachineConfigLister
-	ControllerConfigLister mcfglistersv1.ControllerConfigLister
-}
-
 // Gets all of the image build request opts from informer-backed listers.
-func newBuildRequestOptsFromAPI(l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
+func newBuildRequestOptsFromAPI(a *access.Accessors, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
 	og := optsGetter{
-		listers: l,
+		accessors: a,
 	}
 
 	opts, err := og.getOpts(mosb, mosc)
@@ -119,7 +108,7 @@ func newBuildRequestOptsFromAPI(l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *m
 // Holds all of the private methods used to populate the BuildRequestOpts
 // fields from informer-backed listers.
 type optsGetter struct {
-	listers *Listers
+	accessors *access.Accessors
 }
 
 func (o *optsGetter) validateMachineOSConfig(mosc *mcfgv1.MachineOSConfig) error {
@@ -154,7 +143,7 @@ func (o *optsGetter) getOpts(mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOS
 		return nil, fmt.Errorf("unable to resolve entitlements for MachineOSBuild %s: %w", mosb.Name, err)
 	}
 
-	imagesCM, err := o.listers.ConfigMapLister.ConfigMaps(ctrlcommon.MCONamespace).Get(ctrlcommon.MachineConfigOperatorImagesConfigMapName)
+	imagesCM, err := o.accessors.ConfigMapLister.ConfigMaps(ctrlcommon.MCONamespace).Get(ctrlcommon.MachineConfigOperatorImagesConfigMapName)
 	if err != nil {
 		return nil, fmt.Errorf("could not get images.json config: %w", err)
 	}
@@ -185,12 +174,12 @@ func (o *optsGetter) getOpts(mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOS
 		return nil, fmt.Errorf("could not get final image push secret %s: %w", mosc.Spec.RenderedImagePushSecret.Name, err)
 	}
 
-	mc, err := o.listers.MachineConfigLister.Get(mosb.Spec.MachineConfig.Name)
+	mc, err := o.accessors.MachineConfigLister.Get(mosb.Spec.MachineConfig.Name)
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve machineconfig %s: %w", mosb.Spec.MachineConfig.Name, err)
 	}
 
-	cc, err := o.listers.ControllerConfigLister.Get(ctrlcommon.ControllerConfigName)
+	cc, err := o.accessors.ControllerConfigLister.Get(ctrlcommon.ControllerConfigName)
 	if err != nil {
 		return nil, fmt.Errorf("could not retrieve controllerconfig %s: %w", ctrlcommon.ControllerConfigName, err)
 	}
@@ -209,7 +198,7 @@ func (o *optsGetter) getOpts(mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOS
 
 // Gets an image pull secret from the lister and validates that it is usable.
 func (o *optsGetter) getValidatedSecret(name string) (*corev1.Secret, error) {
-	secret, err := o.listers.SecretLister.Secrets(ctrlcommon.MCONamespace).Get(name)
+	secret, err := o.accessors.SecretLister.Secrets(ctrlcommon.MCONamespace).Get(name)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch secret %s: %w", name, err)
 	}
@@ -253,7 +242,7 @@ func (o *optsGetter) resolveEntitlements(mosc *mcfgv1.MachineOSConfig) (*BuildRe
 // Fetches an optional secret from the lister to inject into the build.
 // Returns a nil error if the secret is not found.
 func (o *optsGetter) getOptionalSecret(secretName string) (*corev1.Secret, error) {
-	optionalSecret, err := o.listers.SecretLister.Secrets(ctrlcommon.MCONamespace).Get(secretName)
+	optionalSecret, err := o.accessors.SecretLister.Secrets(ctrlcommon.MCONamespace).Get(secretName)
 	if err == nil {
 		klog.Infof("Optional build secret %q found, will include in build", secretName)
 		return optionalSecret, nil
@@ -270,7 +259,7 @@ func (o *optsGetter) getOptionalSecret(secretName string) (*corev1.Secret, error
 // Fetches an optional ConfigMap from the lister to inject into the build.
 // Returns a nil error if the ConfigMap is not found.
 func (o *optsGetter) getOptionalConfigMap(configmapName string) (*corev1.ConfigMap, error) {
-	optionalConfigMap, err := o.listers.ConfigMapLister.ConfigMaps(ctrlcommon.MCONamespace).Get(configmapName)
+	optionalConfigMap, err := o.accessors.ConfigMapLister.ConfigMaps(ctrlcommon.MCONamespace).Get(configmapName)
 	if err == nil {
 		klog.Infof("Optional build ConfigMap %q found, will include in build", configmapName)
 		return optionalConfigMap, nil

@@ -10,6 +10,7 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/apihelpers"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -28,8 +29,8 @@ type jobImageBuilder struct {
 	cleaner Cleaner
 }
 
-func newJobImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, listers *buildrequest.Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder) *jobImageBuilder {
-	b, c := newBaseImageBuilderWithCleaner(kubeclient, mcfgclient, listers, mosb, mosc, builder, mcfgv1.JobBuilder)
+func newJobImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, acc *access.Accessors, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder) *jobImageBuilder {
+	b, c := newBaseImageBuilderWithCleaner(kubeclient, mcfgclient, acc, mosb, mosc, builder, mcfgv1.JobBuilder)
 	return &jobImageBuilder{
 		baseImageBuilder: b,
 		cleaner:          c,
@@ -38,8 +39,8 @@ func newJobImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset
 
 // Instantiates an ImageBuilder using the MachineOSBuild and MachineOSConfig objects.
 // The listers are used to resolve build inputs from the informer cache.
-func NewJobImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, listers *buildrequest.Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) ImageBuilder {
-	return newJobImageBuilder(kubeclient, mcfgclient, listers, mosb, mosc, nil)
+func NewJobImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, acc *access.Accessors, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) ImageBuilder {
+	return newJobImageBuilder(kubeclient, mcfgclient, acc, mosb, mosc, nil)
 }
 
 // Instantiates an ImageBuildObserver using the MachineOSBuild and MachineOSConfig objects.

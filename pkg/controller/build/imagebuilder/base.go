@@ -9,6 +9,7 @@ import (
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/access"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	batchv1 "k8s.io/api/batch/v1"
@@ -25,7 +26,7 @@ const (
 type baseImageBuilder struct {
 	kubeclient       clientset.Interface
 	mcfgclient       mcfgclientset.Interface
-	listers          *buildrequest.Listers
+	accessors        *access.Accessors
 	mosb             *mcfgv1.MachineOSBuild
 	mosc             *mcfgv1.MachineOSConfig
 	builder          buildrequest.Builder
@@ -34,11 +35,11 @@ type baseImageBuilder struct {
 }
 
 // Constructs a baseImageBuilder, deep-copying objects as needed.
-func newBaseImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, listers *buildrequest.Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder, imageBuilderType mcfgv1.MachineOSImageBuilderType) *baseImageBuilder {
+func newBaseImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, acc *access.Accessors, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder, imageBuilderType mcfgv1.MachineOSImageBuilderType) *baseImageBuilder {
 	b := &baseImageBuilder{
 		kubeclient:       kubeclient,
 		mcfgclient:       mcfgclient,
-		listers:          listers,
+		accessors:        acc,
 		builder:          builder,
 		imageBuilderType: imageBuilderType,
 	}
@@ -55,8 +56,8 @@ func newBaseImageBuilder(kubeclient clientset.Interface, mcfgclient mcfgclientse
 }
 
 // Constructs a baseImageBuilder and also instantiates a Cleaner instance based upon the object state.
-func newBaseImageBuilderWithCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, listers *buildrequest.Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder, imageBuilderType mcfgv1.MachineOSImageBuilderType) (*baseImageBuilder, Cleaner) {
-	b := newBaseImageBuilder(kubeclient, mcfgclient, listers, mosb, mosc, builder, imageBuilderType)
+func newBaseImageBuilderWithCleaner(kubeclient clientset.Interface, mcfgclient mcfgclientset.Interface, acc *access.Accessors, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig, builder buildrequest.Builder, imageBuilderType mcfgv1.MachineOSImageBuilderType) (*baseImageBuilder, Cleaner) {
+	b := newBaseImageBuilder(kubeclient, mcfgclient, acc, mosb, mosc, builder, imageBuilderType)
 	return b, &cleanerImpl{
 		baseImageBuilder: b,
 	}
@@ -217,7 +218,7 @@ func (b *baseImageBuilder) getBuilderName() string {
 // Prepares to run a given build by instantiating and running the preparer. It
 // then returns a Builder object.
 func (b *baseImageBuilder) prepareForBuild(ctx context.Context) (buildrequest.Builder, error) {
-	preparer := NewPreparer(b.kubeclient, b.listers, b.mosb, b.mosc)
+	preparer := NewPreparer(b.kubeclient, b.accessors, b.mosb, b.mosc)
 
 	br, err := preparer.Prepare(ctx)
 	if err != nil {
