@@ -18,6 +18,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 )
 
@@ -197,12 +198,18 @@ func (r *MOSBReconciler) markTerminalHandled(ctx context.Context, mosb *mcfgv1.M
 	if r.mcfgclient == nil {
 		return nil
 	}
-	metav1.SetMetaDataAnnotation(&mosb.ObjectMeta, constants.TerminalHandledAnnotationKey, constants.TrueValue)
-	_, err := r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().Update(ctx, mosb, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("could not set terminal-handled annotation on MOSB %q: %w", mosb.Name, err)
-	}
-	return nil
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		current, err := r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().Get(ctx, mosb.Name, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		if current.Annotations[constants.TerminalHandledAnnotationKey] == constants.TrueValue {
+			return nil
+		}
+		metav1.SetMetaDataAnnotation(&current.ObjectMeta, constants.TerminalHandledAnnotationKey, constants.TrueValue)
+		_, err = r.mcfgclient.MachineconfigurationV1().MachineOSBuilds().Update(ctx, current, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 // ensureBuildStarted verifies whether a build job exists for this MOSB and
