@@ -131,19 +131,8 @@ func newOSBuildControllerWithServices(
 		ReuseChecker: reuseChecker,
 	}
 
-	// Construct the 4 reconcilers.
-	moscR := reconcile.NewMOSCReconciler(deps)
-	mosbR := reconcile.NewMOSBReconciler(deps)
-	poolR := reconcile.NewPoolReconciler(deps)
-	jobR := reconcile.NewJobReconciler(deps)
-
-	// Compose into a single Reconciler.
-	r := &compositeReconciler{
-		mosc: moscR,
-		mosb: mosbR,
-		pool: poolR,
-		job:  jobR,
-	}
+	// Construct the composite reconciler from the shared deps.
+	r := reconcile.NewCompositeReconciler(deps)
 
 	// Construct the multi-queue controller.
 	bc := NewController(r, inf, l, ctrlConfig)
@@ -175,27 +164,4 @@ func (ctrl *OSBuildController) hasSyncedFuncs() []cache.InformerSynced {
 func RegisterOCLMetrics() error {
 	_, err := services.NewMetricsRecorder(prometheus.DefaultRegisterer)
 	return err
-}
-
-var _ reconcile.Reconciler = &compositeReconciler{}
-
-// compositeReconciler delegates each method to the appropriate sub-reconciler.
-type compositeReconciler struct {
-	mosc *reconcile.MOSCReconciler
-	mosb *reconcile.MOSBReconciler
-	pool *reconcile.PoolReconciler
-	job  *reconcile.JobReconciler
-}
-
-func (c *compositeReconciler) ReconcileMOSC(ctx context.Context, key string) error {
-	return c.mosc.ReconcileMOSC(ctx, key)
-}
-func (c *compositeReconciler) ReconcileMOSB(ctx context.Context, key string) error {
-	return c.mosb.ReconcileMOSB(ctx, key)
-}
-func (c *compositeReconciler) ReconcilePool(ctx context.Context, key string) error {
-	return c.pool.ReconcilePool(ctx, key)
-}
-func (c *compositeReconciler) ReconcileJob(ctx context.Context, key string) error {
-	return c.job.ReconcileJob(ctx, key)
 }
