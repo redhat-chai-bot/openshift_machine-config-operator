@@ -395,11 +395,10 @@ func TestNewInformersHasSyncedIncludesMachineConfig(t *testing.T) {
 
 	inf := newInformers(mcfgclient, kubeclient)
 
-	// We expect 11 hasSynced callbacks:
+	// We expect 9 hasSynced callbacks:
 	// controllerConfig, machineConfigPool, machineConfig, job,
-	// machineOSBuild, machineOSConfig, node, configmap, secret,
-	// sourceConfigmap, sourceSecret
-	expected := 11
+	// machineOSBuild, machineOSConfig, node, configmap, secret
+	expected := 9
 	if got := len(inf.hasSynced); got != expected {
 		t.Errorf("expected %d hasSynced callbacks, got %d — machineConfigInformer.HasSynced may be missing", expected, got)
 	}

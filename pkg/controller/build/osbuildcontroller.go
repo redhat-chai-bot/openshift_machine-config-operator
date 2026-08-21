@@ -134,8 +134,8 @@ func newOSBuildControllerWithServices(
 	// Build request listers for resolving build inputs from the informer
 	// cache instead of making direct API server calls.
 	brListers := &buildrequest.Listers{
-		SecretLister:           l.sourceSecretLister,
-		ConfigMapLister:        l.sourceConfigmapLister,
+		SecretLister:           l.secretLister,
+		ConfigMapLister:        l.configmapLister,
 		MachineConfigLister:    l.machineConfigLister,
 		ControllerConfigLister: l.controllerConfigLister,
 	}

@@ -32,13 +32,8 @@ type informers struct {
 	nodeInformer              coreinformersv1.NodeInformer
 	configmapInformer         coreinformersv1.ConfigMapInformer
 	secretInformer            coreinformersv1.SecretInformer
-	// Unfiltered informers for reading source secrets and configmaps
-	// (pull secrets, entitlements, images configmap, etc.) that do not
-	// carry the ephemeral build object label.
-	sourceConfigmapInformer coreinformersv1.ConfigMapInformer
-	sourceSecretInformer    coreinformersv1.SecretInformer
-	toStart                 []interface{ Start(<-chan struct{}) }
-	hasSynced               []cache.InformerSynced
+	toStart                   []interface{ Start(<-chan struct{}) }
+	hasSynced                 []cache.InformerSynced
 }
 
 // Starts the informers, wiring them up to the provided context.
@@ -60,8 +55,6 @@ func (i *informers) listers() *listers {
 		nodeLister:              i.nodeInformer.Lister(),
 		configmapLister:         i.configmapInformer.Lister(),
 		secretLister:            i.secretInformer.Lister(),
-		sourceConfigmapLister:   i.sourceConfigmapInformer.Lister(),
-		sourceSecretLister:      i.sourceSecretInformer.Lister(),
 	}
 }
 
@@ -76,10 +69,6 @@ type listers struct {
 	nodeLister              corelistersv1.NodeLister
 	configmapLister         corelistersv1.ConfigMapLister
 	secretLister            corelistersv1.SecretLister
-	// Unfiltered listers for reading source secrets and configmaps
-	// that do not carry the ephemeral build object label.
-	sourceConfigmapLister corelistersv1.ConfigMapLister
-	sourceSecretLister    corelistersv1.SecretLister
 }
 
 func (l *listers) utilListers() *utils.Listers {
@@ -93,14 +82,16 @@ func (l *listers) utilListers() *utils.Listers {
 
 // Creates new informer instances from a given Clients(set).
 func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Interface) *informers {
-	// Filters build objects for the core informer.
+	// Filters build objects for the Job informer.
 	ephemeralBuildObjectsOpts := func(opts *metav1.ListOptions) {
 		opts.LabelSelector = utils.EphemeralBuildObjectSelector().String()
 	}
 
 	mcoInformerFactory := mcfginformers.NewSharedInformerFactory(mcfgclient, 0)
 
-	coreInformerFactory := coreinformers.NewSharedInformerFactoryWithOptions(
+	// Filtered informer factory used only for Jobs that carry the
+	// ephemeral build object label.
+	coreInformerFactoryFiltered := coreinformers.NewSharedInformerFactoryWithOptions(
 		kubeclient,
 		0,
 		coreinformers.WithNamespace(ctrlcommon.MCONamespace),
@@ -108,10 +99,11 @@ func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Inter
 	)
 	coreInformerFactoryNodes := coreinformers.NewSharedInformerFactory(kubeclient, 0)
 
-	// Unfiltered informer factory for the MCO namespace. This is used to
-	// read source secrets and configmaps (pull secrets, entitlements,
-	// images configmap, etc.) that do not carry the ephemeral build
-	// object label used by coreInformerFactory.
+	// Unfiltered informer factory for the MCO namespace. Serves both
+	// source objects (pull secrets, entitlements, images configmap) and
+	// ephemeral build objects (Secrets, ConfigMaps) from a single cache.
+	// Consumers that need only ephemeral objects filter at List time
+	// using EphemeralBuildObjectSelector.
 	coreInformerFactoryMCO := coreinformers.NewSharedInformerFactoryWithOptions(
 		kubeclient,
 		0,
@@ -123,12 +115,10 @@ func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Inter
 	machineOSBuildInformer := mcoInformerFactory.Machineconfiguration().V1().MachineOSBuilds()
 	machineConfigInformer := mcoInformerFactory.Machineconfiguration().V1().MachineConfigs()
 	machineOSConfigInformer := mcoInformerFactory.Machineconfiguration().V1().MachineOSConfigs()
-	jobInformer := coreInformerFactory.Batch().V1().Jobs()
+	jobInformer := coreInformerFactoryFiltered.Batch().V1().Jobs()
 	nodeInformer := coreInformerFactoryNodes.Core().V1().Nodes()
-	configmapInformer := coreInformerFactory.Core().V1().ConfigMaps()
-	secretInformer := coreInformerFactory.Core().V1().Secrets()
-	sourceConfigmapInformer := coreInformerFactoryMCO.Core().V1().ConfigMaps()
-	sourceSecretInformer := coreInformerFactoryMCO.Core().V1().Secrets()
+	configmapInformer := coreInformerFactoryMCO.Core().V1().ConfigMaps()
+	secretInformer := coreInformerFactoryMCO.Core().V1().Secrets()
 
 	return &informers{
 		controllerConfigInformer:  controllerConfigInformer,
@@ -140,11 +130,9 @@ func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Inter
 		nodeInformer:              nodeInformer,
 		configmapInformer:         configmapInformer,
 		secretInformer:            secretInformer,
-		sourceConfigmapInformer:   sourceConfigmapInformer,
-		sourceSecretInformer:      sourceSecretInformer,
 		toStart: []interface{ Start(<-chan struct{}) }{
 			mcoInformerFactory,
-			coreInformerFactory,
+			coreInformerFactoryFiltered,
 			coreInformerFactoryNodes,
 			coreInformerFactoryMCO,
 		},
@@ -158,8 +146,6 @@ func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Inter
 			nodeInformer.Informer().HasSynced,
 			configmapInformer.Informer().HasSynced,
 			secretInformer.Informer().HasSynced,
-			sourceConfigmapInformer.Informer().HasSynced,
-			sourceSecretInformer.Informer().HasSynced,
 		},
 	}
 }
