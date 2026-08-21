@@ -10,7 +10,6 @@ import (
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	fakeclientmachineconfigv1 "github.com/openshift/client-go/machineconfiguration/clientset/versioned/fake"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/stretchr/testify/assert"
 	batchv1 "k8s.io/api/batch/v1"
@@ -397,23 +396,23 @@ func TestShutdown(t *testing.T) {
 
 				if testCase.expected != nil {
 					for _, mosc := range testCase.expected.machineOSConfigs {
-						assert.True(t, nonPending.HasKey(utils.UniqueObjectKey{Name: mosc, UID: mosc + "-uid"}))
+						assert.True(t, nonPending.HasKey(uniqueObjectKey{Name: mosc, UID: mosc + "-uid"}))
 					}
 
 					for _, mosb := range testCase.expected.machineOSBuilds {
-						assert.True(t, nonPending.HasKey(utils.UniqueObjectKey{Name: mosb, UID: mosb + "-uid"}))
+						assert.True(t, nonPending.HasKey(uniqueObjectKey{Name: mosb, UID: mosb + "-uid"}))
 					}
 
 					for _, job := range testCase.expected.jobs {
-						assert.True(t, nonPending.HasKey(utils.UniqueObjectKey{Name: job, UID: job + "-uid"}))
+						assert.True(t, nonPending.HasKey(uniqueObjectKey{Name: job, UID: job + "-uid"}))
 					}
 
 					for _, configmap := range testCase.expected.configmaps {
-						assert.True(t, nonPending.HasKey(utils.UniqueObjectKey{Name: configmap, UID: configmap + "-uid"}))
+						assert.True(t, nonPending.HasKey(uniqueObjectKey{Name: configmap, UID: configmap + "-uid"}))
 					}
 
 					for _, secret := range testCase.expected.secrets {
-						assert.True(t, nonPending.HasKey(utils.UniqueObjectKey{Name: secret, UID: secret + "-uid"}))
+						assert.True(t, nonPending.HasKey(uniqueObjectKey{Name: secret, UID: secret + "-uid"}))
 					}
 				} else {
 					assert.Equal(t, 0, nonPending.Len())

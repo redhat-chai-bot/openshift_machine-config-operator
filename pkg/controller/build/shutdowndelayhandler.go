@@ -92,7 +92,7 @@ func (s *shutdownDelayHandler) printCleanupMessages() error {
 
 // Finds all of the objects related to a MachineOSConfig or a MachineOSBuild
 // that are not pending deletion. Also searches for orphaned objects.
-func (s *shutdownDelayHandler) findAllNonPendingObjects() (*utils.UniqueObjects, error) {
+func (s *shutdownDelayHandler) findAllNonPendingObjects() (*uniqueObjects, error) {
 	objs, err := newObjectsForShutdownFromListers(s.listers)
 	if err != nil {
 		return nil, err
@@ -218,8 +218,8 @@ func (o *objectsForShutdown) shouldObjectBePendingDeletion(obj metav1.Object) bo
 
 // Iterates through all of the objects we've loaded in order to determine any
 // orphaned or soon-to-be orphaned objects.
-func (o *objectsForShutdown) findAllNonPendingObjects() *utils.UniqueObjects {
-	foundObjs := utils.NewUniqueObjects()
+func (o *objectsForShutdown) findAllNonPendingObjects() *uniqueObjects {
+	foundObjs := newUniqueObjects()
 
 	for _, obj := range o.all {
 		if o.shouldObjectBePendingDeletion(obj) && !o.isObjectPendingDeletion(obj) {

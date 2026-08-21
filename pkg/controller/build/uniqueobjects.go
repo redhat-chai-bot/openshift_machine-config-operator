@@ -1,4 +1,4 @@
-package utils
+package build
 
 import (
 	"sync"
@@ -9,28 +9,28 @@ import (
 // Provides an easy way to ensure that any given object(s) are unique. In this
 // case, we determine uniqueness by getting the object name and UID.
 // All public methods are safe for concurrent use.
-type UniqueObjects struct {
+type uniqueObjects struct {
 	mu      sync.Mutex
-	objects map[UniqueObjectKey]metav1.Object
+	objects map[uniqueObjectKey]metav1.Object
 }
 
-type UniqueObjectKey struct {
+type uniqueObjectKey struct {
 	Name string
 	UID  string
 }
 
-func NewUniqueObjects() *UniqueObjects {
-	return &UniqueObjects{
-		objects: map[UniqueObjectKey]metav1.Object{},
+func newUniqueObjects() *uniqueObjects {
+	return &uniqueObjects{
+		objects: map[uniqueObjectKey]metav1.Object{},
 	}
 }
 
 // Returns a copy of the underlying map.
-func (u *UniqueObjects) Map() map[UniqueObjectKey]metav1.Object {
+func (u *uniqueObjects) Map() map[uniqueObjectKey]metav1.Object {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	out := make(map[UniqueObjectKey]metav1.Object, len(u.objects))
+	out := make(map[uniqueObjectKey]metav1.Object, len(u.objects))
 	for key, val := range u.objects {
 		out[key] = val
 	}
@@ -38,7 +38,7 @@ func (u *UniqueObjects) Map() map[UniqueObjectKey]metav1.Object {
 }
 
 // Inserts a single object.
-func (u *UniqueObjects) Insert(obj metav1.Object) {
+func (u *uniqueObjects) Insert(obj metav1.Object) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -49,7 +49,7 @@ func (u *UniqueObjects) Insert(obj metav1.Object) {
 }
 
 // Inserts multiple objects.
-func (u *UniqueObjects) InsertAll(objs []metav1.Object) {
+func (u *uniqueObjects) InsertAll(objs []metav1.Object) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -62,7 +62,7 @@ func (u *UniqueObjects) InsertAll(objs []metav1.Object) {
 }
 
 // Determines if the object already exists.
-func (u *UniqueObjects) Has(obj metav1.Object) bool {
+func (u *uniqueObjects) Has(obj metav1.Object) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -72,7 +72,7 @@ func (u *UniqueObjects) Has(obj metav1.Object) bool {
 }
 
 // Retrieves an object given a key, if found.
-func (u *UniqueObjects) GetByKey(k UniqueObjectKey) (metav1.Object, bool) {
+func (u *uniqueObjects) GetByKey(k uniqueObjectKey) (metav1.Object, bool) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -81,7 +81,7 @@ func (u *UniqueObjects) GetByKey(k UniqueObjectKey) (metav1.Object, bool) {
 }
 
 // Allows querying by key.
-func (u *UniqueObjects) HasKey(k UniqueObjectKey) bool {
+func (u *uniqueObjects) HasKey(k uniqueObjectKey) bool {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -90,11 +90,11 @@ func (u *UniqueObjects) HasKey(k UniqueObjectKey) bool {
 }
 
 // Returns all keys.
-func (u *UniqueObjects) Keys() []UniqueObjectKey {
+func (u *uniqueObjects) Keys() []uniqueObjectKey {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	out := make([]UniqueObjectKey, 0, len(u.objects))
+	out := make([]uniqueObjectKey, 0, len(u.objects))
 	for key := range u.objects {
 		out = append(out, key)
 	}
@@ -102,15 +102,15 @@ func (u *UniqueObjects) Keys() []UniqueObjectKey {
 }
 
 // Computes the key for the object. Caller must hold u.mu.
-func (u *UniqueObjects) computeKey(obj metav1.Object) UniqueObjectKey {
-	return UniqueObjectKey{
+func (u *uniqueObjects) computeKey(obj metav1.Object) uniqueObjectKey {
+	return uniqueObjectKey{
 		Name: obj.GetName(),
 		UID:  string(obj.GetUID()),
 	}
 }
 
 // Gets the length of the underlying map.
-func (u *UniqueObjects) Len() int {
+func (u *uniqueObjects) Len() int {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -118,7 +118,7 @@ func (u *UniqueObjects) Len() int {
 }
 
 // Returns an unsorted slice of the items in the map.
-func (u *UniqueObjects) UnsortedSlice() []metav1.Object {
+func (u *uniqueObjects) UnsortedSlice() []metav1.Object {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
