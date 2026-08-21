@@ -40,7 +40,7 @@ func NewPreparer(kubeclient clientset.Interface, listers *buildrequest.Listers, 
 }
 
 func (p *preparerImpl) Prepare(ctx context.Context) (buildrequest.BuildRequest, error) {
-	br, err := buildrequest.NewBuildRequestFromAPI(ctx, p.listers, p.mosb, p.mosc)
+	br, err := buildrequest.NewBuildRequestFromAPI(p.listers, p.mosb, p.mosc)
 	if err != nil {
 		return nil, fmt.Errorf("could not get imagebuildrequestopts: %w", err)
 	}

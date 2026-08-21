@@ -1,7 +1,6 @@
 package buildrequest
 
 import (
-	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -81,8 +80,8 @@ type buildRequestImpl struct {
 }
 
 // Constructs an imageBuildRequest using informer-backed listers.
-func NewBuildRequestFromAPI(ctx context.Context, l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (BuildRequest, error) {
-	opts, err := newBuildRequestOptsFromAPI(ctx, l, mosb, mosc)
+func NewBuildRequestFromAPI(l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (BuildRequest, error) {
+	opts, err := newBuildRequestOptsFromAPI(l, mosb, mosc)
 	if err != nil {
 		return nil, err
 	}

@@ -1,7 +1,6 @@
 package buildrequest
 
 import (
-	"context"
 	"testing"
 
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
@@ -167,9 +166,6 @@ func TestBuildRequestOpts(t *testing.T) {
 	t.Run("nil BaseImagePullSecret does not panic on error path", func(t *testing.T) {
 		t.Parallel()
 
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-
 		_, _, lobj, _ := fixtures.GetClientsForTest(t)
 
 		// Ensure BaseImagePullSecret is nil on the MOSC.
@@ -189,7 +185,7 @@ func TestBuildRequestOpts(t *testing.T) {
 
 		// This must not panic; it should return an error referencing
 		// the fallback secret name.
-		_, err := newBuildRequestOptsFromAPI(ctx, l, lobj.MachineOSBuild, lobj.MachineOSConfig)
+		_, err := newBuildRequestOptsFromAPI(l, lobj.MachineOSBuild, lobj.MachineOSConfig)
 		assert.Error(t, err, "expected error when pull secret is missing")
 		assert.Contains(t, err.Error(), ctrlcommon.GlobalPullSecretCopyName)
 	})
@@ -198,9 +194,6 @@ func TestBuildRequestOpts(t *testing.T) {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-
-			ctx, cancel := context.WithCancel(context.Background())
-			t.Cleanup(cancel)
 
 			_, _, lobj, _ := fixtures.GetClientsForTestWithAdditionalObjects(t, testCase.addlObjects, []runtime.Object{})
 
@@ -212,7 +205,7 @@ func TestBuildRequestOpts(t *testing.T) {
 			kubeObjs = append(kubeObjs, testCase.addlObjects...)
 			l := newTestListers(kubeObjs, mcfgObjs)
 
-			brOpts, err := newBuildRequestOptsFromAPI(ctx, l, lobj.MachineOSBuild, lobj.MachineOSConfig)
+			brOpts, err := newBuildRequestOptsFromAPI(l, lobj.MachineOSBuild, lobj.MachineOSConfig)
 			assert.NoError(t, err)
 
 			if testCase.addlAsserts != nil {

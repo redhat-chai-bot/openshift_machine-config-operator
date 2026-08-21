@@ -210,7 +210,7 @@ func newMachineConfigsFromPool(mcp *mcfgv1.MachineConfigPool) ([]*mcfgv1.Machine
 // for populating test listers. The kube objects include the images configmap,
 // pull secrets, and the global pull secret. The mcfg objects include a
 // ControllerConfig and the MachineConfigs for the "worker" pool.
-func DefaultObjectsForListers() (kubeObjs []runtime.Object, mcfgObjs []runtime.Object) {
+func DefaultObjectsForListers() (kubeObjs, mcfgObjs []runtime.Object) {
 	obj := NewObjectsForTest("worker")
 	kubeObjs = defaultKubeObjects()
 	mcfgObjs = []runtime.Object{

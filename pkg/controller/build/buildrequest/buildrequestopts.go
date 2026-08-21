@@ -1,7 +1,6 @@
 package buildrequest
 
 import (
-	"context"
 	"fmt"
 	goruntime "runtime"
 
@@ -80,12 +79,12 @@ type Listers struct {
 }
 
 // Gets all of the image build request opts from informer-backed listers.
-func newBuildRequestOptsFromAPI(ctx context.Context, l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
+func newBuildRequestOptsFromAPI(l *Listers, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
 	og := optsGetter{
 		listers: l,
 	}
 
-	opts, err := og.getOpts(ctx, mosb, mosc)
+	opts, err := og.getOpts(mosb, mosc)
 	if err != nil {
 		return nil, fmt.Errorf("could not get buildrequestopts from API: %w", err)
 	}
@@ -158,7 +157,7 @@ func (o *optsGetter) validateMachineOSBuild(mosb *mcfgv1.MachineOSBuild) error {
 }
 
 // Gets the BuildRequestOpts using informer-backed listers.
-func (o *optsGetter) getOpts(ctx context.Context, mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
+func (o *optsGetter) getOpts(mosb *mcfgv1.MachineOSBuild, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
 	if err := o.validateMachineOSConfig(mosc); err != nil {
 		return nil, fmt.Errorf("could not validate MachineOSConfig: %w", err)
 	}
@@ -167,7 +166,7 @@ func (o *optsGetter) getOpts(ctx context.Context, mosb *mcfgv1.MachineOSBuild, m
 		return nil, fmt.Errorf("could not validate MachineOSBuild: %w", err)
 	}
 
-	opts, err := o.resolveEntitlements(ctx, mosc)
+	opts, err := o.resolveEntitlements(mosc)
 	if err != nil {
 		return nil, fmt.Errorf("unable to resolve entitlements for MachineOSBuild %s: %w", mosb.Name, err)
 	}
@@ -193,12 +192,12 @@ func (o *optsGetter) getOpts(ctx context.Context, mosb *mcfgv1.MachineOSBuild, m
 		baseImagePullSecretName = ctrlcommon.GlobalPullSecretCopyName
 	}
 
-	baseImagePullSecret, err := o.getValidatedSecret(ctx, baseImagePullSecretName)
+	baseImagePullSecret, err := o.getValidatedSecret(baseImagePullSecretName)
 	if err != nil {
 		return nil, fmt.Errorf("could not get base image pull secret %s: %w", baseImagePullSecretName, err)
 	}
 
-	finalImagePushSecret, err := o.getValidatedSecret(ctx, mosc.Spec.RenderedImagePushSecret.Name)
+	finalImagePushSecret, err := o.getValidatedSecret(mosc.Spec.RenderedImagePushSecret.Name)
 	if err != nil {
 		return nil, fmt.Errorf("could not get final image push secret %s: %w", mosc.Spec.RenderedImagePushSecret.Name, err)
 	}
@@ -226,7 +225,7 @@ func (o *optsGetter) getOpts(ctx context.Context, mosb *mcfgv1.MachineOSBuild, m
 }
 
 // Gets an image pull secret from the lister and validates that it is usable.
-func (o *optsGetter) getValidatedSecret(ctx context.Context, name string) (*corev1.Secret, error) {
+func (o *optsGetter) getValidatedSecret(name string) (*corev1.Secret, error) {
 	secret, err := o.listers.SecretLister.Secrets(ctrlcommon.MCONamespace).Get(name)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch secret %s: %w", name, err)
@@ -241,24 +240,24 @@ func (o *optsGetter) getValidatedSecret(ctx context.Context, name string) (*core
 
 // Determines whether the build makes use of entitlements based upon the
 // presence (or lack thereof) of specific configmaps and secrets.
-func (o *optsGetter) resolveEntitlements(ctx context.Context, mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
+func (o *optsGetter) resolveEntitlements(mosc *mcfgv1.MachineOSConfig) (*BuildRequestOpts, error) {
 	opts := &BuildRequestOpts{}
 
-	etcPkiEntitlements, err := o.getOptionalSecret(ctx, constants.EtcPkiEntitlementSecretName+"-"+mosc.Spec.MachineConfigPool.Name)
+	etcPkiEntitlements, err := o.getOptionalSecret(constants.EtcPkiEntitlementSecretName + "-" + mosc.Spec.MachineConfigPool.Name)
 	if err != nil {
 		return nil, fmt.Errorf("could not determine status of optional Secret %q: %w", constants.EtcPkiEntitlementSecretName, err)
 	}
 
 	opts.HasEtcPkiEntitlementKeys = etcPkiEntitlements != nil
 
-	etcPkiRpmGpgKeys, err := o.getOptionalSecret(ctx, constants.EtcPkiRpmGpgSecretName)
+	etcPkiRpmGpgKeys, err := o.getOptionalSecret(constants.EtcPkiRpmGpgSecretName)
 	if err != nil {
 		return nil, fmt.Errorf("could not determine status of optional Secret %q: %w", constants.EtcPkiRpmGpgSecretName, err)
 	}
 
 	opts.HasEtcPkiRpmGpgKeys = etcPkiRpmGpgKeys != nil
 
-	etcYumReposDConfigs, err := o.getOptionalConfigMap(ctx, constants.EtcYumReposDConfigMapName)
+	etcYumReposDConfigs, err := o.getOptionalConfigMap(constants.EtcYumReposDConfigMapName)
 	if err != nil {
 		return nil, fmt.Errorf("could not determine status of optional ConfigMap %q: %w", constants.EtcYumReposDConfigMapName, err)
 	}
@@ -270,7 +269,7 @@ func (o *optsGetter) resolveEntitlements(ctx context.Context, mosc *mcfgv1.Machi
 
 // Fetches an optional secret from the lister to inject into the build.
 // Returns a nil error if the secret is not found.
-func (o *optsGetter) getOptionalSecret(ctx context.Context, secretName string) (*corev1.Secret, error) {
+func (o *optsGetter) getOptionalSecret(secretName string) (*corev1.Secret, error) {
 	optionalSecret, err := o.listers.SecretLister.Secrets(ctrlcommon.MCONamespace).Get(secretName)
 	if err == nil {
 		klog.Infof("Optional build secret %q found, will include in build", secretName)
@@ -287,7 +286,7 @@ func (o *optsGetter) getOptionalSecret(ctx context.Context, secretName string) (
 
 // Fetches an optional ConfigMap from the lister to inject into the build.
 // Returns a nil error if the ConfigMap is not found.
-func (o *optsGetter) getOptionalConfigMap(ctx context.Context, configmapName string) (*corev1.ConfigMap, error) {
+func (o *optsGetter) getOptionalConfigMap(configmapName string) (*corev1.ConfigMap, error) {
 	optionalConfigMap, err := o.listers.ConfigMapLister.ConfigMaps(ctrlcommon.MCONamespace).Get(configmapName)
 	if err == nil {
 		klog.Infof("Optional build ConfigMap %q found, will include in build", configmapName)
