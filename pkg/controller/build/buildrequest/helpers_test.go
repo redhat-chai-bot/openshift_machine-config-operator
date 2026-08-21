@@ -3,7 +3,7 @@ package buildrequest
 import (
 	"testing"
 
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -77,8 +77,8 @@ func TestCanonicalizePullSecret(t *testing.T) {
 
 			assert.NoError(t, err)
 			assert.Contains(t, out.Name, "canonical")
-			assert.True(t, utils.CanonicalizedSecretSelector().Matches(labels.Set(out.GetLabels())))
-			assert.True(t, utils.IsObjectCreatedByController(out))
+			assert.True(t, buildlabels.CanonicalizedSecretSelector().Matches(labels.Set(out.GetLabels())))
+			assert.True(t, buildlabels.IsObjectCreatedByController(out))
 		})
 	}
 }

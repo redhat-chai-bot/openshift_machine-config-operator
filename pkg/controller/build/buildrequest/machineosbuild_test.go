@@ -8,8 +8,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	testhelpers "github.com/openshift/machine-config-operator/test/helpers"
 )
 
@@ -129,8 +129,8 @@ func TestMachineOSBuild(t *testing.T) {
 			assert.Equal(t, testCase.opts.MachineConfigPool.Spec.Configuration.Name, mosb.Spec.MachineConfig.Name)
 			assert.NotNil(t, mosb.Status.BuildStart)
 
-			assert.True(t, utils.MachineOSBuildSelector(testCase.opts.MachineOSConfig, testCase.opts.MachineConfigPool).Matches(labels.Set(mosb.Labels)))
-			assert.Equal(t, utils.GetMachineOSBuildLabels(testCase.opts.MachineOSConfig, testCase.opts.MachineConfigPool), mosb.Labels)
+			assert.True(t, buildlabels.MachineOSBuildSelector(testCase.opts.MachineOSConfig, testCase.opts.MachineConfigPool).Matches(labels.Set(mosb.Labels)))
+			assert.Equal(t, buildlabels.GetMachineOSBuildLabels(testCase.opts.MachineOSConfig, testCase.opts.MachineConfigPool), mosb.Labels)
 		})
 	}
 }
@@ -138,7 +138,7 @@ func TestMachineOSBuild(t *testing.T) {
 // Ensures that the labels are consistent between NewMachineOSBuild and the
 // test fixture given the same input data. This is required because it would
 // cause a circular import for the fixtures package to use the
-// utils.GetMachineOSBuildLabels() function..
+// buildlabels.GetMachineOSBuildLabels() function..
 func TestMachineOSBuildLabelConsistency(t *testing.T) {
 	t.Parallel()
 
@@ -154,8 +154,8 @@ func TestMachineOSBuildLabelConsistency(t *testing.T) {
 
 	assert.NoError(t, err)
 
-	assert.True(t, utils.MachineOSBuildSelector(obj.MachineOSConfig, obj.MachineConfigPool).Matches(labels.Set(mosb.Labels)))
-	assert.Equal(t, mosb.Labels, utils.GetMachineOSBuildLabels(obj.MachineOSConfig, obj.MachineConfigPool))
+	assert.True(t, buildlabels.MachineOSBuildSelector(obj.MachineOSConfig, obj.MachineConfigPool).Matches(labels.Set(mosb.Labels)))
+	assert.Equal(t, mosb.Labels, buildlabels.GetMachineOSBuildLabels(obj.MachineOSConfig, obj.MachineConfigPool))
 	assert.Equal(t, obj.MachineOSBuild.Labels, mosb.Labels)
 }
 

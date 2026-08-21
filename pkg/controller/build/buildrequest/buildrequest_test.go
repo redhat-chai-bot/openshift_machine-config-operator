@@ -6,8 +6,8 @@ import (
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/fixtures"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	"github.com/stretchr/testify/assert"
 	batchv1 "k8s.io/api/batch/v1"
@@ -180,9 +180,9 @@ func TestBuildRequest(t *testing.T) {
 			}
 
 			for _, object := range objects {
-				assert.True(t, utils.EphemeralBuildObjectSelector().Matches(labels.Set(object.GetLabels())))
-				assert.True(t, utils.OSBuildSelector().Matches(labels.Set(object.GetLabels())))
-				assert.True(t, utils.IsObjectCreatedByController(object))
+				assert.True(t, buildlabels.EphemeralBuildObjectSelector().Matches(labels.Set(object.GetLabels())))
+				assert.True(t, buildlabels.OSBuildSelector().Matches(labels.Set(object.GetLabels())))
+				assert.True(t, buildlabels.IsObjectCreatedByController(object))
 			}
 
 			for _, secret := range secrets {
@@ -200,7 +200,7 @@ func TestBuildRequest(t *testing.T) {
 func assertSecretInCorrectFormat(t *testing.T, secret *corev1.Secret) {
 	t.Helper()
 
-	assert.True(t, utils.CanonicalizedSecretSelector().Matches(labels.Set(secret.GetLabels())))
+	assert.True(t, buildlabels.CanonicalizedSecretSelector().Matches(labels.Set(secret.GetLabels())))
 	assert.Equal(t, secret.Type, corev1.SecretTypeDockerConfigJson)
 	assert.NotEqual(t, secret.Type, corev1.SecretTypeDockercfg)
 	assert.Contains(t, secret.Data, corev1.DockerConfigJsonKey)

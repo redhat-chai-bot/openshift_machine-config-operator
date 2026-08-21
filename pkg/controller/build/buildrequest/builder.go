@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -28,7 +29,7 @@ func newBuilder(obj metav1.Object) Builder {
 // Constructs a new Builder object and ensures that it has all of the needed
 // metadata.
 func NewBuilder(obj metav1.Object) (Builder, error) {
-	sel := utils.EphemeralBuildObjectSelector()
+	sel := buildlabels.EphemeralBuildObjectSelector()
 
 	if !sel.Matches(labels.Set(obj.GetLabels())) {
 		return nil, fmt.Errorf("missing required labels: %s", sel.String())

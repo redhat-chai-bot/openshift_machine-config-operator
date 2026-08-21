@@ -17,6 +17,7 @@ import (
 	coreinformersv1 "k8s.io/client-go/informers/core/v1"
 	corelistersv1 "k8s.io/client-go/listers/core/v1"
 
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 )
@@ -84,7 +85,7 @@ func (l *listers) utilListers() *utils.Listers {
 func newInformers(mcfgclient mcfgclientset.Interface, kubeclient clientset.Interface) *informers {
 	// Filters build objects for the Job informer.
 	ephemeralBuildObjectsOpts := func(opts *metav1.ListOptions) {
-		opts.LabelSelector = utils.EphemeralBuildObjectSelector().String()
+		opts.LabelSelector = buildlabels.EphemeralBuildObjectSelector().String()
 	}
 
 	mcoInformerFactory := mcfginformers.NewSharedInformerFactory(mcfgclient, 0)

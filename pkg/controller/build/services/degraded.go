@@ -6,7 +6,7 @@ import (
 
 	"github.com/openshift/machine-config-operator/pkg/apihelpers"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
@@ -129,7 +129,7 @@ func (d *degradedHandler) SyncBuildFailure(ctx context.Context, pool *mcfgv1.Mac
 }
 
 func (d *degradedHandler) UpdateImageBuildDegraded(ctx context.Context, pool *mcfgv1.MachineConfigPool, mosc *mcfgv1.MachineOSConfig) error {
-	sel := utils.MachineOSBuildForPoolSelector(mosc)
+	sel := buildlabels.MachineOSBuildForPoolSelector(mosc)
 	mosbList, err := d.mosbLister.List(sel)
 	if err != nil {
 		return fmt.Errorf("could not get MachineOSBuilds for MachineOSConfig %q: %w", mosc.Name, err)

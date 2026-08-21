@@ -10,6 +10,7 @@ import (
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -130,7 +131,7 @@ func (s *seeder) Seed(ctx context.Context, mosc *mcfgv1.MachineOSConfig, imageSp
 }
 
 func (s *seeder) createSyntheticMachineOSBuild(ctx context.Context, mosc *mcfgv1.MachineOSConfig, mcp *mcfgv1.MachineConfigPool, buildName, imageSpec string) (*mcfgv1.MachineOSBuild, error) {
-	buildLabels := utils.GetMachineOSBuildLabels(mosc, mcp)
+	buildLabels := buildlabels.GetMachineOSBuildLabels(mosc, mcp)
 	buildLabels[constants.PreBuiltImageLabelKey] = constants.TrueValue
 
 	buildAnnotations := map[string]string{

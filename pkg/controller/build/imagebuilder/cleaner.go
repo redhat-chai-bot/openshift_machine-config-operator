@@ -8,7 +8,7 @@ import (
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/buildrequest"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -162,7 +162,7 @@ func (c *cleanerImpl) deleteSecret(ctx context.Context, secretName, mosbName, mo
 func (c *cleanerImpl) getSelectorForDeletion() (labels.Selector, error) {
 	if c.mosb != nil {
 		// This function can tolerate having MachineOSConfig be nil.
-		return utils.EphemeralBuildObjectSelectorForSpecificBuild(c.mosb, c.mosc)
+		return buildlabels.EphemeralBuildObjectSelectorForSpecificBuild(c.mosb, c.mosc)
 	}
 
 	return ephemeralBuildObjectSelectorForBuilder(c.builder)

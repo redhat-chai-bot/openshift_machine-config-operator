@@ -9,6 +9,7 @@ import (
 	mcfgclientset "github.com/openshift/client-go/machineconfiguration/clientset/versioned"
 	mcfglistersv1 "github.com/openshift/client-go/machineconfiguration/listers/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/services"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
@@ -128,7 +129,7 @@ func (r *MOSCReconciler) handleRebuild(ctx context.Context, mosc *mcfgv1.Machine
 // ensureBuildExists checks whether a matching MachineOSBuild exists and
 // creates one if not.
 func (r *MOSCReconciler) ensureBuildExists(ctx context.Context, mosc *mcfgv1.MachineOSConfig) error {
-	sel := utils.MachineOSBuildForPoolSelector(mosc)
+	sel := buildlabels.MachineOSBuildForPoolSelector(mosc)
 	mosbs, err := r.mosbLister.List(sel)
 	if err != nil {
 		return fmt.Errorf("could not list MachineOSBuilds for MachineOSConfig %q: %w", mosc.Name, err)

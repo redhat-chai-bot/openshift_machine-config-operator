@@ -12,7 +12,7 @@ import (
 	"github.com/ghodss/yaml"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
-	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -204,7 +204,7 @@ func NewMachineOSBuild(opts MachineOSBuildOpts) (*mcfgv1.MachineOSBuild, error) 
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   mosbName,
-			Labels: utils.GetMachineOSBuildLabels(opts.MachineOSConfig, opts.MachineConfigPool),
+			Labels: buildlabels.GetMachineOSBuildLabels(opts.MachineOSConfig, opts.MachineConfigPool),
 			// Set finalzer on MOSB to ensure all it dependents are deleted before the MOSB
 			Finalizers: []string{
 				metav1.FinalizerDeleteDependents,

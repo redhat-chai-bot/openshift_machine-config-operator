@@ -9,6 +9,7 @@ import (
 
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/constants"
+	"github.com/openshift/machine-config-operator/pkg/controller/build/internal/buildlabels"
 	"github.com/openshift/machine-config-operator/pkg/controller/build/utils"
 	ctrlcommon "github.com/openshift/machine-config-operator/pkg/controller/common"
 
@@ -144,7 +145,7 @@ func newObjectsForShutdownFromListers(l *listers) (*objectsForShutdown, error) {
 	}
 
 	// Select for all ephemeral build objects.
-	sel := utils.EphemeralBuildObjectSelector()
+	sel := buildlabels.EphemeralBuildObjectSelector()
 
 	jobList, err := l.jobLister.List(sel)
 	if err != nil {
