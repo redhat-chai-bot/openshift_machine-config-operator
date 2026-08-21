@@ -1,6 +1,6 @@
 package build
 
-// Tests for the Controller type (multi-queue shell, enqueue helpers,
+// Tests for the OSBuildController type (multi-queue shell, enqueue helpers,
 // shutdown, informer wiring). The test file lives in the same package
 // to access unexported types like informers, listers, and queue internals.
 
@@ -23,6 +23,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
+	clockutil "k8s.io/utils/clock"
 	clocktesting "k8s.io/utils/clock/testing"
 )
 
@@ -32,7 +33,7 @@ var _ reconcile.Reconciler = &fakeReconciler{}
 // fakeReconciler records calls made by the controller.
 type fakeReconciler struct {
 	mu    sync.Mutex
-	calls map[string][]string // method → list of keys
+	calls map[string][]string // method -> list of keys
 }
 
 func newFakeReconciler() *fakeReconciler {
@@ -73,18 +74,53 @@ func (f *fakeReconciler) getCalls(method string) []string {
 	return out
 }
 
+// newTestController constructs an OSBuildController the same way
+// NewController used to -- creating queues, wiring handlers, etc.
+// This is used by unit tests that need direct access to controller
+// internals without going through the full service-wiring path.
+func newTestController(r reconcile.Reconciler, inf *informers, l *listers, cfg Config, opts ...ControllerOption) *OSBuildController {
+	ctrl := &OSBuildController{
+		moscQueue:    newStringQueue(moscQueueName),
+		mosbQueue:    newStringQueue(mosbQueueName),
+		mcpQueue:     newStringQueue(mcpQueueName),
+		jobQueue:     newStringQueue(jobQueueName),
+		reconciler:   r,
+		informers:    inf,
+		listers:      l,
+		config:       cfg,
+		shutdownChan: make(chan struct{}),
+		clock:        clockutil.RealClock{},
+	}
+
+	for _, o := range opts {
+		o(ctrl)
+	}
+
+	ctrl.shutdownDelayHandler = &shutdownDelayHandler{
+		listers: l,
+		clock:   ctrl.clock,
+	}
+
+	// Wire informer event handlers when informers are provided.
+	if inf != nil && inf.machineOSConfigInformer != nil {
+		ctrl.addInformerHandlers()
+	}
+
+	return ctrl
+}
+
 // TestNewController verifies basic construction.
 func TestNewController(t *testing.T) {
 	r := newFakeReconciler()
 
-	bc := NewController(r, &informers{}, &listers{}, defaultConfig())
-	if bc == nil {
-		t.Fatal("NewController returned nil")
+	ctrl := newTestController(r, &informers{}, &listers{}, defaultConfig())
+	if ctrl == nil {
+		t.Fatal("newTestController returned nil")
 	}
-	if bc.moscQueue == nil || bc.mosbQueue == nil || bc.mcpQueue == nil || bc.jobQueue == nil {
+	if ctrl.moscQueue == nil || ctrl.mosbQueue == nil || ctrl.mcpQueue == nil || ctrl.jobQueue == nil {
 		t.Fatal("one or more workqueues is nil")
 	}
-	if bc.reconciler != r {
+	if ctrl.reconciler != r {
 		t.Error("reconciler not set correctly")
 	}
 }
@@ -92,27 +128,27 @@ func TestNewController(t *testing.T) {
 // TestControllerWithClock verifies clock injection.
 func TestControllerWithClock(t *testing.T) {
 	fakeClock := clocktesting.NewFakeClock(time.Now())
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig(), WithClock(fakeClock))
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig(), WithClock(fakeClock))
 
-	if bc.clock != fakeClock {
+	if ctrl.clock != fakeClock {
 		t.Error("custom clock was not injected")
 	}
 }
 
 // TestEnqueueMOSC verifies that enqueueMOSC extracts the correct key.
 func TestEnqueueMOSC(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mosc"},
 	}
-	bc.enqueueMOSC(mosc)
+	ctrl.enqueueMOSC(mosc)
 
-	key, quit := bc.moscQueue.Get()
+	key, quit := ctrl.moscQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.moscQueue.Done(key)
+	defer ctrl.moscQueue.Done(key)
 
 	if key != "test-mosc" {
 		t.Errorf("expected key %q, got %q", "test-mosc", key)
@@ -121,18 +157,18 @@ func TestEnqueueMOSC(t *testing.T) {
 
 // TestEnqueueMOSB verifies that enqueueMOSB extracts the correct key.
 func TestEnqueueMOSB(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mosb := &mcfgv1.MachineOSBuild{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-mosb"},
 	}
-	bc.enqueueMOSB(mosb)
+	ctrl.enqueueMOSB(mosb)
 
-	key, quit := bc.mosbQueue.Get()
+	key, quit := ctrl.mosbQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.mosbQueue.Done(key)
+	defer ctrl.mosbQueue.Done(key)
 
 	if key != "test-mosb" {
 		t.Errorf("expected key %q, got %q", "test-mosb", key)
@@ -141,18 +177,18 @@ func TestEnqueueMOSB(t *testing.T) {
 
 // TestEnqueueMCP verifies that enqueueMCP extracts the correct key.
 func TestEnqueueMCP(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mcp := &mcfgv1.MachineConfigPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
 	}
-	bc.enqueueMCP(mcp)
+	ctrl.enqueueMCP(mcp)
 
-	key, quit := bc.mcpQueue.Get()
+	key, quit := ctrl.mcpQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.mcpQueue.Done(key)
+	defer ctrl.mcpQueue.Done(key)
 
 	if key != "worker" {
 		t.Errorf("expected key %q, got %q", "worker", key)
@@ -161,7 +197,7 @@ func TestEnqueueMCP(t *testing.T) {
 
 // TestEnqueueJob verifies that enqueueJob extracts the namespace/name key.
 func TestEnqueueJob(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -169,13 +205,13 @@ func TestEnqueueJob(t *testing.T) {
 			Namespace: "openshift-machine-config-operator",
 		},
 	}
-	bc.enqueueJob(job)
+	ctrl.enqueueJob(job)
 
-	key, quit := bc.jobQueue.Get()
+	key, quit := ctrl.jobQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.jobQueue.Done(key)
+	defer ctrl.jobQueue.Done(key)
 
 	expected := "openshift-machine-config-operator/build-job-1"
 	if key != expected {
@@ -188,7 +224,7 @@ func TestEnqueueJob(t *testing.T) {
 // DeletedFinalStateUnknown wrapper (which the cache layer populated), so the
 // enqueued key is the tombstone's Key field.
 func TestHandleDeleteWithTombstone(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "deleted-mosc"},
@@ -198,13 +234,13 @@ func TestHandleDeleteWithTombstone(t *testing.T) {
 		Obj: mosc,
 	}
 
-	bc.handleDeleteMOSC(tombstone)
+	ctrl.handleDeleteMOSC(tombstone)
 
-	key, quit := bc.moscQueue.Get()
+	key, quit := ctrl.moscQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.moscQueue.Done(key)
+	defer ctrl.moscQueue.Done(key)
 
 	if key != "deleted-mosc" {
 		t.Errorf("expected key %q from tombstone, got %q", "deleted-mosc", key)
@@ -213,7 +249,7 @@ func TestHandleDeleteWithTombstone(t *testing.T) {
 
 // TestHandleDeleteMCPWithTombstone verifies the MCP delete handler (new in WS2).
 func TestHandleDeleteMCPWithTombstone(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mcp := &mcfgv1.MachineConfigPool{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
@@ -223,13 +259,13 @@ func TestHandleDeleteMCPWithTombstone(t *testing.T) {
 		Obj: mcp,
 	}
 
-	bc.handleDeleteMCP(tombstone)
+	ctrl.handleDeleteMCP(tombstone)
 
-	key, quit := bc.mcpQueue.Get()
+	key, quit := ctrl.mcpQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.mcpQueue.Done(key)
+	defer ctrl.mcpQueue.Done(key)
 
 	if key != "worker" {
 		t.Errorf("expected key %q, got %q", "worker", key)
@@ -239,7 +275,7 @@ func TestHandleDeleteMCPWithTombstone(t *testing.T) {
 // TestHandleDeleteMOSBWithTombstone verifies the MOSB delete handler processes
 // tombstones correctly, extracting the key from the DeletedFinalStateUnknown.
 func TestHandleDeleteMOSBWithTombstone(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	mosb := &mcfgv1.MachineOSBuild{
 		ObjectMeta: metav1.ObjectMeta{Name: "deleted-mosb"},
@@ -249,13 +285,13 @@ func TestHandleDeleteMOSBWithTombstone(t *testing.T) {
 		Obj: mosb,
 	}
 
-	bc.handleDeleteMOSB(tombstone)
+	ctrl.handleDeleteMOSB(tombstone)
 
-	key, quit := bc.mosbQueue.Get()
+	key, quit := ctrl.mosbQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.mosbQueue.Done(key)
+	defer ctrl.mosbQueue.Done(key)
 
 	if key != "deleted-mosb" {
 		t.Errorf("expected key %q from tombstone, got %q", "deleted-mosb", key)
@@ -265,7 +301,7 @@ func TestHandleDeleteMOSBWithTombstone(t *testing.T) {
 // TestHandleDeleteJobWithTombstone verifies the Job delete handler processes
 // tombstones correctly, extracting the namespace/name key.
 func TestHandleDeleteJobWithTombstone(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -278,13 +314,13 @@ func TestHandleDeleteJobWithTombstone(t *testing.T) {
 		Obj: job,
 	}
 
-	bc.handleDeleteJob(tombstone)
+	ctrl.handleDeleteJob(tombstone)
 
-	key, quit := bc.jobQueue.Get()
+	key, quit := ctrl.jobQueue.Get()
 	if quit {
 		t.Fatal("queue shut down unexpectedly")
 	}
-	defer bc.jobQueue.Done(key)
+	defer ctrl.jobQueue.Done(key)
 
 	expected := "openshift-machine-config-operator/deleted-job"
 	if key != expected {
@@ -292,14 +328,14 @@ func TestHandleDeleteJobWithTombstone(t *testing.T) {
 	}
 }
 
-// TestProcessQueueCallsReconciler verifies the queue→reconciler dispatch path.
+// TestProcessQueueCallsReconciler verifies the queue->reconciler dispatch path.
 func TestProcessQueueCallsReconciler(t *testing.T) {
 	r := newFakeReconciler()
-	bc := NewController(r, &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(r, &informers{}, &listers{}, defaultConfig())
 
 	// Enqueue a key and process it.
-	bc.moscQueue.Add("my-mosc")
-	bc.processQueue(context.Background(), bc.moscQueue, bc.reconciler.ReconcileMOSC)
+	ctrl.moscQueue.Add("my-mosc")
+	ctrl.processQueue(context.Background(), ctrl.moscQueue, ctrl.reconciler.ReconcileMOSC)
 
 	calls := r.getCalls("ReconcileMOSC")
 	if len(calls) != 1 || calls[0] != "my-mosc" {
@@ -316,13 +352,13 @@ func TestProcessQueueRetries(t *testing.T) {
 
 	callCount := 0
 	failingReconciler := newFakeReconciler()
-	bc := NewController(failingReconciler, &informers{}, &listers{}, cfg)
+	ctrl := newTestController(failingReconciler, &informers{}, &listers{}, cfg)
 
 	// Replace the default moscQueue with one using a zero-delay rate limiter
 	// so retried items are immediately available for re-processing.
-	bc.moscQueue.ShutDown()
+	ctrl.moscQueue.ShutDown()
 	rl := workqueue.NewTypedItemExponentialFailureRateLimiter[string](0, 0)
-	bc.moscQueue = workqueue.NewTypedRateLimitingQueueWithConfig[string](rl,
+	ctrl.moscQueue = workqueue.NewTypedRateLimitingQueueWithConfig[string](rl,
 		workqueue.TypedRateLimitingQueueConfig[string]{Name: "test-zero-delay"})
 
 	// Create a handler that always fails.
@@ -331,12 +367,12 @@ func TestProcessQueueRetries(t *testing.T) {
 		return fmt.Errorf("transient error for %s", key)
 	}
 
-	bc.moscQueue.Add("fail-key")
+	ctrl.moscQueue.Add("fail-key")
 
 	// Process until the key is dropped (MaxRetries = 2 means 3 total attempts:
 	// 1 initial + 2 retries, then dropped via Forget+return).
 	for i := 0; i < cfg.MaxRetries+1; i++ {
-		bc.processQueue(context.Background(), bc.moscQueue, handler)
+		ctrl.processQueue(context.Background(), ctrl.moscQueue, handler)
 	}
 
 	if callCount != cfg.MaxRetries+1 {
@@ -359,22 +395,22 @@ func TestShutdownChan(t *testing.T) {
 	kubeclient := k8sfake.NewSimpleClientset()
 	inf := newInformers(mcfgclient, kubeclient)
 
-	bc := NewController(newFakeReconciler(), inf, inf.listers(), cfg)
+	ctrl := newTestController(newFakeReconciler(), inf, inf.listers(), cfg)
 
 	// ShutdownChan should not be closed initially.
 	select {
-	case <-bc.ShutdownChan():
+	case <-ctrl.ShutdownChan():
 		t.Fatal("shutdown channel should not be closed yet")
 	default:
 	}
 
 	// Call shutdownController directly. This shuts down all queues and
 	// closes the shutdown channel.
-	bc.shutdownController()
+	ctrl.shutdownController()
 
 	// ShutdownChan should now be closed.
 	select {
-	case <-bc.ShutdownChan():
+	case <-ctrl.ShutdownChan():
 		// expected
 	default:
 		t.Error("shutdown channel should be closed after shutdownController")
@@ -400,37 +436,37 @@ func TestNewInformersHasSyncedIncludesMachineConfig(t *testing.T) {
 	// machineOSBuild, machineOSConfig, node, configmap, secret
 	expected := 9
 	if got := len(inf.hasSynced); got != expected {
-		t.Errorf("expected %d hasSynced callbacks, got %d — machineConfigInformer.HasSynced may be missing", expected, got)
+		t.Errorf("expected %d hasSynced callbacks, got %d -- machineConfigInformer.HasSynced may be missing", expected, got)
 	}
 }
 
 // TestMultipleQueuesIndependent verifies that enqueuing on one queue does not
 // affect others.
 func TestMultipleQueuesIndependent(t *testing.T) {
-	bc := NewController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
+	ctrl := newTestController(newFakeReconciler(), &informers{}, &listers{}, defaultConfig())
 
-	bc.moscQueue.Add("mosc-key")
-	bc.mosbQueue.Add("mosb-key")
-	bc.mcpQueue.Add("mcp-key")
-	bc.jobQueue.Add("ns/job-key")
+	ctrl.moscQueue.Add("mosc-key")
+	ctrl.mosbQueue.Add("mosb-key")
+	ctrl.mcpQueue.Add("mcp-key")
+	ctrl.jobQueue.Add("ns/job-key")
 
 	// Each queue should have exactly 1 item.
-	if bc.moscQueue.Len() != 1 {
-		t.Errorf("moscQueue: expected len 1, got %d", bc.moscQueue.Len())
+	if ctrl.moscQueue.Len() != 1 {
+		t.Errorf("moscQueue: expected len 1, got %d", ctrl.moscQueue.Len())
 	}
-	if bc.mosbQueue.Len() != 1 {
-		t.Errorf("mosbQueue: expected len 1, got %d", bc.mosbQueue.Len())
+	if ctrl.mosbQueue.Len() != 1 {
+		t.Errorf("mosbQueue: expected len 1, got %d", ctrl.mosbQueue.Len())
 	}
-	if bc.mcpQueue.Len() != 1 {
-		t.Errorf("mcpQueue: expected len 1, got %d", bc.mcpQueue.Len())
+	if ctrl.mcpQueue.Len() != 1 {
+		t.Errorf("mcpQueue: expected len 1, got %d", ctrl.mcpQueue.Len())
 	}
-	if bc.jobQueue.Len() != 1 {
-		t.Errorf("jobQueue: expected len 1, got %d", bc.jobQueue.Len())
+	if ctrl.jobQueue.Len() != 1 {
+		t.Errorf("jobQueue: expected len 1, got %d", ctrl.jobQueue.Len())
 	}
 }
 
 // TestOSBuildController_EndToEnd_WorkqueueDispatch exercises the full
-// Controller → compositeReconciler → workqueue pipeline with real informers
+// OSBuildController -> compositeReconciler -> workqueue pipeline with real informers
 // and fake clients, verifying that creating a MOSC via the fake client
 // triggers reconciliation through the actual workqueue dispatch path.
 func TestOSBuildController_EndToEnd_WorkqueueDispatch(t *testing.T) {
@@ -477,11 +513,11 @@ func TestOSBuildController_EndToEnd_WorkqueueDispatch(t *testing.T) {
 	// Wait for caches to sync (with timeout).
 	syncCtx, syncCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer syncCancel()
-	if !cache.WaitForCacheSync(syncCtx.Done(), ctrl.inner.informers.hasSynced...) {
+	if !cache.WaitForCacheSync(syncCtx.Done(), ctrl.hasSyncedFuncs()...) {
 		t.Fatal("caches failed to sync")
 	}
 
-	// Create a MOSC via the fake client — this should trigger informer → queue → reconcile.
+	// Create a MOSC via the fake client -- this should trigger informer -> queue -> reconcile.
 	mosc := &mcfgv1.MachineOSConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: "worker"},
 		Spec: mcfgv1.MachineOSConfigSpec{
