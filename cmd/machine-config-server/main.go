@@ -8,6 +8,8 @@ import (
 	"github.com/openshift/machine-config-operator/pkg/version"
 	"github.com/spf13/cobra"
 	"k8s.io/component-base/cli"
+	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -32,6 +34,9 @@ var (
 )
 
 func init() {
+	// Initialize the controller-runtime logger for every server subcommand.
+	log.SetLogger(klog.NewKlogr())
+
 	rootCmd.PersistentFlags().AddGoFlagSet(flag.CommandLine)
 	rootCmd.PersistentFlags().IntVar(&rootOpts.sport, "secure-port", server.SecurePort, "secure port to serve ignition configs")
 	rootCmd.PersistentFlags().StringVar(&rootOpts.cert, "cert", "/etc/ssl/mcs/tls.crt", "cert file for TLS")
