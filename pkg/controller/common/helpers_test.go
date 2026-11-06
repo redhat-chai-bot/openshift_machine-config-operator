@@ -122,15 +122,23 @@ func TestValidateIgnition(t *testing.T) {
 	isValid2 = ValidateIgnition(testIgn3Config)
 	require.Nil(t, isValid2)
 
-	// Test that file modes do not have special bits (sticky, setuid, setgid) set
-	// https://bugzilla.redhat.com/show_bug.cgi?id=2038240
-	invalidMode := 0o1777
+	// Test that V3 file modes may have special bits set (here, the sticky bit)
+	specialMode := 0o1777
 
-	testIgn3Config.Storage.Files[0].Mode = &invalidMode
+	testIgn3Config.Storage.Files[0].Mode = &specialMode
+	isValid2 = ValidateIgnition(testIgn3Config)
+	require.Nil(t, isValid2)
+
+	// Test that V3 file modes above 0o7777 are rejected (enforced by Ignition's own mode validation)
+	outOfRangeMode := 0o10000
+
+	testIgn3Config.Storage.Files[0].Mode = &outOfRangeMode
 	isValid2 = ValidateIgnition(testIgn3Config)
 	require.NotNil(t, isValid2)
 
-	testIgn2Config.Storage.Files[0].Mode = &invalidMode
+	// Test that V2 file modes do not have special bits (sticky, setuid, setgid) set
+	// https://bugzilla.redhat.com/show_bug.cgi?id=2038240
+	testIgn2Config.Storage.Files[0].Mode = &specialMode
 	isValid2 = ValidateIgnition(testIgn2Config)
 	require.NotNil(t, isValid2)
 
